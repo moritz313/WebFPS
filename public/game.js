@@ -20,8 +20,8 @@ const keys = {
 const PLAYER_HEIGHT = 1.8;
 const PLAYER_SPEED = 5;
 const SPRINT_MULTIPLIER = 2;
-const JUMP_FORCE = 8;
-const GRAVITY = -20;
+const JUMP_FORCE = 12;
+const GRAVITY = -12;
 const GROUND_Y = 1.8;
 const MOUSE_SENSITIVITY = 0.002;
 
@@ -32,14 +32,24 @@ const WEAPONS = {
         damage: 25,
         bulletsPerShot: 1,
         spread: 0,
-        color: 0x00ff00
+        color: 0x00ff00,
+        cooldown: 150 // 0.15 Sekunden
     },
     SHOTGUN: {
         name: 'Shotgun',
         damage: 15,
         bulletsPerShot: 8,
         spread: 0.15,
-        color: 0xff4444
+        color: 0xff4444,
+        cooldown: 800 // 0.8 Sekunden
+    },
+    SNIPER: {
+        name: 'Sniper',
+        damage: 80,
+        bulletsPerShot: 1,
+        spread: 0,
+        color: 0x0088ff,
+        cooldown: 1000 // 1 Sekunde
     }
 };
 
@@ -49,8 +59,14 @@ let currentWeapon = WEAPONS.RIFLE;
 let velocityY = 0;
 let isGrounded = true;
 
-// Kollisionserkennung mit Hindernissen
-function checkCollisionWithObstacles(x, z, playerRadius = 0.5) {
+// Sniper-spezifische Variablen
+let isZoomed = false;
+let normalFOV = 75;
+let zoomedFOV = 25;
+let lastShotTime = 0;
+
+// Kollisionserkennung mit Hindernissen - nur horizontal (für Bewegung)
+function checkHorizontalCollisionWithObstacles(x, z, playerRadius = 0.5) {
     for (const obstacle of mapObstacles) {
         // AABB Kollisionserkennung (Axis-Aligned Bounding Box)
         const dx = Math.abs(x - obstacle.x);
@@ -67,6 +83,39 @@ function checkCollisionWithObstacles(x, z, playerRadius = 0.5) {
     return false; // Keine Kollision
 }
 
+// Erweiterte Kollisionserkennung für Boden (Blöcke als Plattformen)
+function getGroundHeightAt(x, z, currentY, playerRadius = 0.5) {
+    let maxGroundHeight = GROUND_Y; // Standard-Bodenhöhe
+    
+    for (const obstacle of mapObstacles) {
+        // Prüfen ob Spieler über dem Block ist
+        const dx = Math.abs(x - obstacle.x);
+        const dz = Math.abs(z - obstacle.z);
+        
+        // Etwas kleinere Bounding Box für Boden-Kollision (damit man nicht an den Kanten hängen bleibt)
+        const halfWidth = obstacle.width / 2 - 0.1;
+        const halfDepth = obstacle.depth / 2 - 0.1;
+        
+        if (dx < halfWidth && dz < halfDepth) {
+            // Spieler ist über dem Block - Block-Oberkante als Boden verwenden
+            const blockTop = obstacle.y + obstacle.height / 2;
+            
+            // Nur als Boden verwenden wenn Spieler nah genug ist (nicht weit drüber)
+            if (blockTop > maxGroundHeight && currentY <= blockTop + 0.5) {
+                maxGroundHeight = blockTop;
+            }
+        }
+    }
+    
+    return maxGroundHeight;
+}
+
+// Prüfen ob Spieler in einen Block fallen würde (für vertikal nach unten)
+function checkVerticalCollisionFromAbove(x, y, z, playerRadius = 0.5) {
+    // Diese Funktion ist jetzt deaktiviert - nur noch einfache Boden-Kollision
+    return { collision: false };
+}
+
 // UI Elemente
 const menu = document.getElementById('menu');
 const startBtn = document.getElementById('startBtn');
@@ -80,6 +129,9 @@ startBtn.addEventListener('click', startGame);
 document.addEventListener('keydown', onKeyDown);
 document.addEventListener('keyup', onKeyUp);
 document.addEventListener('click', onMouseClick);
+document.addEventListener('mousedown', onMouseDown);
+document.addEventListener('mouseup', onMouseUp);
+document.addEventListener('contextmenu', (event) => event.preventDefault()); // Kontextmenü deaktivieren
 document.addEventListener('pointerlockchange', onPointerLockChange);
 document.addEventListener('mousemove', onMouseMove);
 
@@ -228,6 +280,7 @@ function startGame() {
     document.body.classList.add('playing');
     
     initThreeJS();
+    createSkybox();
     createArena();
     setupCamera();
     
@@ -298,57 +351,247 @@ function initThreeJS() {
     scene.add(pointLight4);
 }
 
+function createSkybox() {
+    console.log('🌤️ Lade Skybox...');
+    
+    // Texture Loader
+    const loader = new THREE.TextureLoader();
+    
+    // Skybox Texture laden
+    loader.load(
+        'https://i.imgur.com/3w4dMZJ.jpeg',
+        function(texture) {
+            // Texture erfolgreich geladen
+            console.log('✅ Skybox Texture geladen');
+            
+            // Große Sphere für Skybox erstellen
+            const skyboxGeometry = new THREE.SphereGeometry(500, 32, 32);
+            
+            // Material mit der Texture, von innen sichtbar
+            const skyboxMaterial = new THREE.MeshBasicMaterial({
+                map: texture,
+                side: THREE.BackSide // Von innen sichtbar
+            });
+            
+            // Skybox Mesh erstellen
+            const skybox = new THREE.Mesh(skyboxGeometry, skyboxMaterial);
+            skybox.name = 'skybox';
+            
+            // Zur Szene hinzufügen
+            scene.add(skybox);
+            console.log('🌤️ Skybox zur Szene hinzugefügt');
+        },
+        function(progress) {
+            // Loading Progress
+            console.log('📥 Skybox Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
+        },
+        function(error) {
+            // Loading Error
+            console.error('❌ Fehler beim Laden der Skybox:', error);
+            console.log('🔄 Verwende Fallback-Skybox...');
+            createFallbackSkybox();
+        }
+    );
+}
+
+function createFallbackSkybox() {
+    // Einfache Gradient-Skybox als Fallback
+    const skyboxGeometry = new THREE.SphereGeometry(500, 32, 32);
+    const skyboxMaterial = new THREE.MeshBasicMaterial({
+        color: 0x87CEEB, // Sky Blue
+        side: THREE.BackSide
+    });
+    
+    const skybox = new THREE.Mesh(skyboxGeometry, skyboxMaterial);
+    skybox.name = 'fallback-skybox';
+    scene.add(skybox);
+    console.log('🌤️ Fallback-Skybox erstellt');
+}
+
 function createArena() {
-    // Boden - heller
+    // Boden mit Textur
+    console.log('🏗️ Erstelle Arena mit Boden-Textur...');
+    
     const floorGeometry = new THREE.PlaneGeometry(100, 100);
-    const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 }); // Hellerer Boden
-    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-    floor.rotation.x = -Math.PI / 2;
-    floor.receiveShadow = true;
-    scene.add(floor);
+    
+    // Texture Loader für Boden-Textur
+    const textureLoader = new THREE.TextureLoader();
+    
+    textureLoader.load(
+        'https://i.imgur.com/5dx4Y0V.png',
+        function(texture) {
+            // Texture erfolgreich geladen
+            console.log('✅ Boden-Textur geladen');
+            
+            // Textur-Einstellungen für Wiederholung
+            texture.wrapS = THREE.RepeatWrapping;
+            texture.wrapT = THREE.RepeatWrapping;
+            texture.repeat.set(10, 10); // 10x10 Wiederholungen für große Fläche
+            
+            // Material mit Textur erstellen
+            const floorMaterial = new THREE.MeshLambertMaterial({ 
+                map: texture
+            });
+            
+            // Boden erstellen und zur Szene hinzufügen
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            floor.name = 'textured-floor';
+            scene.add(floor);
+            
+            console.log('🏗️ Texturierter Boden zur Szene hinzugefügt');
+        },
+        function(progress) {
+            // Loading Progress
+            console.log('📥 Boden-Textur Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
+        },
+        function(error) {
+            // Loading Error - Fallback zu einfarbigem Boden
+            console.error('❌ Fehler beim Laden der Boden-Textur:', error);
+            console.log('🔄 Verwende Fallback-Boden...');
+            
+            const floorMaterial = new THREE.MeshLambertMaterial({ color: 0x888888 });
+            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+            floor.rotation.x = -Math.PI / 2;
+            floor.receiveShadow = true;
+            floor.name = 'fallback-floor';
+            scene.add(floor);
+            
+            console.log('🏗️ Fallback-Boden zur Szene hinzugefügt');
+        }
+    );
     
     // Wände
     const wallHeight = 10;
     const wallThickness = 1;
     
-    // Wand Material - heller
-    const wallMaterial = new THREE.MeshLambertMaterial({ color: 0xaaaaaa }); // Hellere Wände
+    // Wand-Textur laden
+    console.log('🧱 Lade Wand-Textur...');
+    const wallTextureLoader = new THREE.TextureLoader();
     
-    // Nord-Wand
-    const northWall = new THREE.Mesh(
-        new THREE.BoxGeometry(100, wallHeight, wallThickness),
-        wallMaterial
+    wallTextureLoader.load(
+        'https://i.imgur.com/VMcr38J.png',
+        function(wallTexture) {
+            // Texture erfolgreich geladen
+            console.log('✅ Wand-Textur geladen');
+            
+            // Textur-Einstellungen für Wiederholung
+            wallTexture.wrapS = THREE.RepeatWrapping;
+            wallTexture.wrapT = THREE.RepeatWrapping;
+            
+            // Wand Material mit Textur
+            const wallMaterial = new THREE.MeshLambertMaterial({ 
+                map: wallTexture
+            });
+            
+            // Nord-Wand
+            wallTexture.repeat.set(20, 2); // Angepasst für Wand-Dimensionen
+            const northWall = new THREE.Mesh(
+                new THREE.BoxGeometry(100, wallHeight, wallThickness),
+                wallMaterial
+            );
+            northWall.position.set(0, wallHeight/2, -50);
+            northWall.castShadow = true;
+            northWall.name = 'north-wall';
+            scene.add(northWall);
+            
+            // Süd-Wand
+            const southWallTexture = wallTexture.clone();
+            southWallTexture.repeat.set(20, 2);
+            const southWallMaterial = new THREE.MeshLambertMaterial({ map: southWallTexture });
+            const southWall = new THREE.Mesh(
+                new THREE.BoxGeometry(100, wallHeight, wallThickness),
+                southWallMaterial
+            );
+            southWall.position.set(0, wallHeight/2, 50);
+            southWall.castShadow = true;
+            southWall.name = 'south-wall';
+            scene.add(southWall);
+            
+            // West-Wand
+            const westWallTexture = wallTexture.clone();
+            westWallTexture.repeat.set(20, 2);
+            const westWallMaterial = new THREE.MeshLambertMaterial({ map: westWallTexture });
+            const westWall = new THREE.Mesh(
+                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
+                westWallMaterial
+            );
+            westWall.position.set(-50, wallHeight/2, 0);
+            westWall.castShadow = true;
+            westWall.name = 'west-wall';
+            scene.add(westWall);
+            
+            // Ost-Wand
+            const eastWallTexture = wallTexture.clone();
+            eastWallTexture.repeat.set(20, 2);
+            const eastWallMaterial = new THREE.MeshLambertMaterial({ map: eastWallTexture });
+            const eastWall = new THREE.Mesh(
+                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
+                eastWallMaterial
+            );
+            eastWall.position.set(50, wallHeight/2, 0);
+            eastWall.castShadow = true;
+            eastWall.name = 'east-wall';
+            scene.add(eastWall);
+            
+            console.log('🧱 Alle texturierten Wände zur Szene hinzugefügt');
+        },
+        function(progress) {
+            // Loading Progress
+            console.log('📥 Wand-Textur Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
+        },
+        function(error) {
+            // Loading Error - Fallback zu einfarbigen Wänden
+            console.error('❌ Fehler beim Laden der Wand-Textur:', error);
+            console.log('🔄 Verwende Fallback-Wände...');
+            
+            // Fallback: Einfarbige Wände
+            const wallMaterial = new THREE.MeshLambertMaterial({ color: 0xaaaaaa });
+            
+            // Nord-Wand
+            const northWall = new THREE.Mesh(
+                new THREE.BoxGeometry(100, wallHeight, wallThickness),
+                wallMaterial
+            );
+            northWall.position.set(0, wallHeight/2, -50);
+            northWall.castShadow = true;
+            northWall.name = 'fallback-north-wall';
+            scene.add(northWall);
+            
+            // Süd-Wand
+            const southWall = new THREE.Mesh(
+                new THREE.BoxGeometry(100, wallHeight, wallThickness),
+                wallMaterial
+            );
+            southWall.position.set(0, wallHeight/2, 50);
+            southWall.castShadow = true;
+            southWall.name = 'fallback-south-wall';
+            scene.add(southWall);
+            
+            // West-Wand
+            const westWall = new THREE.Mesh(
+                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
+                wallMaterial
+            );
+            westWall.position.set(-50, wallHeight/2, 0);
+            westWall.castShadow = true;
+            westWall.name = 'fallback-west-wall';
+            scene.add(westWall);
+            
+            // Ost-Wand
+            const eastWall = new THREE.Mesh(
+                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
+                wallMaterial
+            );
+            eastWall.position.set(50, wallHeight/2, 0);
+            eastWall.castShadow = true;
+            eastWall.name = 'fallback-east-wall';
+            scene.add(eastWall);
+            
+            console.log('🧱 Fallback-Wände zur Szene hinzugefügt');
+        }
     );
-    northWall.position.set(0, wallHeight/2, -50);
-    northWall.castShadow = true;
-    scene.add(northWall);
-    
-    // Süd-Wand
-    const southWall = new THREE.Mesh(
-        new THREE.BoxGeometry(100, wallHeight, wallThickness),
-        wallMaterial
-    );
-    southWall.position.set(0, wallHeight/2, 50);
-    southWall.castShadow = true;
-    scene.add(southWall);
-    
-    // West-Wand
-    const westWall = new THREE.Mesh(
-        new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-        wallMaterial
-    );
-    westWall.position.set(-50, wallHeight/2, 0);
-    westWall.castShadow = true;
-    scene.add(westWall);
-    
-    // Ost-Wand
-    const eastWall = new THREE.Mesh(
-        new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-        wallMaterial
-    );
-    eastWall.position.set(50, wallHeight/2, 0);
-    eastWall.castShadow = true;
-    scene.add(eastWall);
     
     // Hindernisse werden jetzt server-seitig geladen
     // createObstacles() wird nach Erhalt der Map-Daten aufgerufen
@@ -363,7 +606,7 @@ function setupCamera() {
     let attempts = 0;
     
     // Versuche eine freie Position zu finden
-    while (checkCollisionWithObstacles(spawnX, spawnZ) && attempts < 50) {
+    while (checkHorizontalCollisionWithObstacles(spawnX, spawnZ) && attempts < 50) {
         spawnX = (Math.random() - 0.5) * 40; // Kleinerer Spawn-Bereich
         spawnZ = (Math.random() - 0.5) * 40;
         attempts++;
@@ -388,27 +631,89 @@ function createObstacles() {
         return;
     }
     
-    const boxMaterial = new THREE.MeshLambertMaterial({ color: 0xCD853F }); // Hellere Hindernisse (Sandy Brown)
+    // Box-Textur laden
+    console.log('📦 Lade Box-Textur...');
+    const boxTextureLoader = new THREE.TextureLoader();
     
-    mapObstacles.forEach((obstacle, index) => {
-        console.log(`Erstelle Hindernis ${index + 1}:`, obstacle);
-        
-        const box = new THREE.Mesh(
-            new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
-            boxMaterial
-        );
-        
-        box.position.set(obstacle.x, obstacle.y, obstacle.z);
-        box.castShadow = true;
-        box.receiveShadow = true;
-        box.userData.isObstacle = true;
-        box.userData.obstacleData = obstacle;
-        
-        scene.add(box);
-        console.log(`✅ Hindernis ${index + 1} zur Szene hinzugefügt bei (${obstacle.x}, ${obstacle.y}, ${obstacle.z})`);
-    });
-    
-    console.log(`🎉 ${mapObstacles.length} Hindernisse erfolgreich erstellt. Szenen-Kinder:`, scene.children.length);
+    boxTextureLoader.load(
+        'https://i.imgur.com/DiMAnF6.png',
+        function(boxTexture) {
+            // Texture erfolgreich geladen
+            console.log('✅ Box-Textur geladen');
+            
+            // Textur-Einstellungen für Wiederholung
+            boxTexture.wrapS = THREE.RepeatWrapping;
+            boxTexture.wrapT = THREE.RepeatWrapping;
+            
+            // Hindernisse mit Textur erstellen
+            mapObstacles.forEach((obstacle, index) => {
+                console.log(`Erstelle texturiertes Hindernis ${index + 1}:`, obstacle);
+                
+                // Individuelle Textur für jede Box
+                const obstacleTexture = boxTexture.clone();
+                
+                // Textur-Wiederholung basierend auf Box-Größe anpassen
+                const scaleX = obstacle.width / 2;
+                const scaleY = obstacle.height / 2;
+                obstacleTexture.repeat.set(scaleX, scaleY);
+                
+                // Material mit Textur
+                const boxMaterial = new THREE.MeshLambertMaterial({ 
+                    map: obstacleTexture
+                });
+                
+                const box = new THREE.Mesh(
+                    new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
+                    boxMaterial
+                );
+                
+                box.position.set(obstacle.x, obstacle.y, obstacle.z);
+                box.castShadow = true;
+                box.receiveShadow = true;
+                box.userData.isObstacle = true;
+                box.userData.obstacleData = obstacle;
+                box.name = `textured-obstacle-${index + 1}`;
+                
+                scene.add(box);
+                console.log(`✅ Texturiertes Hindernis ${index + 1} zur Szene hinzugefügt bei (${obstacle.x}, ${obstacle.y}, ${obstacle.z})`);
+            });
+            
+            console.log(`🎉 ${mapObstacles.length} texturierte Hindernisse erfolgreich erstellt. Szenen-Kinder:`, scene.children.length);
+        },
+        function(progress) {
+            // Loading Progress
+            console.log('📥 Box-Textur Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
+        },
+        function(error) {
+            // Loading Error - Fallback zu einfarbigen Boxen
+            console.error('❌ Fehler beim Laden der Box-Textur:', error);
+            console.log('🔄 Verwende Fallback-Boxen...');
+            
+            // Fallback: Einfarbige Boxen
+            const boxMaterial = new THREE.MeshLambertMaterial({ color: 0xCD853F });
+            
+            mapObstacles.forEach((obstacle, index) => {
+                console.log(`Erstelle Fallback-Hindernis ${index + 1}:`, obstacle);
+                
+                const box = new THREE.Mesh(
+                    new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
+                    boxMaterial
+                );
+                
+                box.position.set(obstacle.x, obstacle.y, obstacle.z);
+                box.castShadow = true;
+                box.receiveShadow = true;
+                box.userData.isObstacle = true;
+                box.userData.obstacleData = obstacle;
+                box.name = `fallback-obstacle-${index + 1}`;
+                
+                scene.add(box);
+                console.log(`✅ Fallback-Hindernis ${index + 1} zur Szene hinzugefügt bei (${obstacle.x}, ${obstacle.y}, ${obstacle.z})`);
+            });
+            
+            console.log(`🎉 ${mapObstacles.length} Fallback-Hindernisse erfolgreich erstellt. Szenen-Kinder:`, scene.children.length);
+        }
+    );
 }
 
 function addOtherPlayer(playerData) {
@@ -490,6 +795,13 @@ function createBulletVisual(bulletData) {
 }
 
 function shoot() {
+    // Cooldown für alle Waffen überprüfen
+    const currentTime = Date.now();
+    if (currentTime - lastShotTime < currentWeapon.cooldown) {
+        return; // Cooldown noch aktiv
+    }
+    lastShotTime = currentTime;
+    
     const baseDirection = new THREE.Vector3(0, 0, -1);
     baseDirection.applyQuaternion(camera.quaternion);
     
@@ -515,7 +827,7 @@ function shoot() {
             directionY: direction.y,
             directionZ: direction.z,
             damage: currentWeapon.damage,
-            weaponType: currentWeapon === WEAPONS.RIFLE ? 'rifle' : 'shotgun'
+            weaponType: currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper'
         };
         
         socket.emit('shoot', bulletData);
@@ -529,7 +841,7 @@ function shoot() {
     }
     
     // Rückstoß-Effekt - stärker bei Shotgun
-    const recoilMultiplier = currentWeapon === WEAPONS.SHOTGUN ? 2 : 1;
+    const recoilMultiplier = currentWeapon === WEAPONS.SHOTGUN ? 2 : currentWeapon === WEAPONS.SNIPER ? 1.5 : 1;
     camera.rotation.x += (Math.random() - 0.5) * 0.02 * recoilMultiplier;
     camera.rotation.y += (Math.random() - 0.5) * 0.02 * recoilMultiplier;
 }
@@ -569,13 +881,21 @@ function updatePlayer() {
     velocityY += GRAVITY * deltaTime;
     
     // Y-Position aktualisieren
-    camera.position.y += velocityY * deltaTime;
+    const newY = camera.position.y + velocityY * deltaTime;
     
-    // Boden-Kollision
-    if (camera.position.y <= GROUND_Y) {
-        camera.position.y = GROUND_Y;
+    // Erweiterte Boden-Kollision mit Blöcken
+    const groundHeight = getGroundHeightAt(camera.position.x, camera.position.z, newY);
+    
+    // Einfache Boden-Kollision - nur landen wenn unter der Boden-Höhe
+    if (newY <= groundHeight && velocityY <= 0) {
+        // Normal auf Boden oder Block-Oberfläche landen (nur bei Abwärtsbewegung)
+        camera.position.y = groundHeight;
         velocityY = 0;
         isGrounded = true;
+    } else {
+        // Frei fallen/springen
+        camera.position.y = newY;
+        isGrounded = false;
     }
     
     // Kollisionserkennung mit Wänden und Hindernissen
@@ -584,7 +904,7 @@ function updatePlayer() {
     
     // Versuch beide Achsen gleichzeitig zu bewegen
     if (Math.abs(newX) < 49 && Math.abs(newZ) < 49 && 
-        !checkCollisionWithObstacles(newX, newZ)) {
+        !checkHorizontalCollisionWithObstacles(newX, newZ)) {
         // Beide Richtungen frei - normale Bewegung
         camera.position.x = newX;
         camera.position.z = newZ;
@@ -592,12 +912,12 @@ function updatePlayer() {
         // Kollision detected - versuche entlang Wänden zu gleiten
         
         // Nur X-Achse bewegen (Z bleibt gleich)
-        if (Math.abs(newX) < 49 && !checkCollisionWithObstacles(newX, camera.position.z)) {
+        if (Math.abs(newX) < 49 && !checkHorizontalCollisionWithObstacles(newX, camera.position.z)) {
             camera.position.x = newX;
         }
         
         // Nur Z-Achse bewegen (X bleibt gleich)
-        if (Math.abs(newZ) < 49 && !checkCollisionWithObstacles(camera.position.x, newZ)) {
+        if (Math.abs(newZ) < 49 && !checkHorizontalCollisionWithObstacles(camera.position.x, newZ)) {
             camera.position.z = newZ;
         }
     }
@@ -689,8 +1009,83 @@ function updateWeaponUI() {
             weaponIcon.textContent = '🔫'; // Pistole/Gewehr
         } else if (currentWeapon === WEAPONS.SHOTGUN) {
             weaponIcon.textContent = '💥'; // Explosion/Shotgun
+        } else if (currentWeapon === WEAPONS.SNIPER) {
+            weaponIcon.textContent = '🎯'; // Target/Sniper
         }
         weaponIcon.style.color = `#${currentWeapon.color.toString(16).padStart(6, '0')}`;
+    }
+    
+    // Zoom-Status aktualisieren
+    updateZoomUI();
+}
+
+function toggleZoom() {
+    if (currentWeapon !== WEAPONS.SNIPER) return;
+    
+    isZoomed = !isZoomed;
+    camera.fov = isZoomed ? zoomedFOV : normalFOV;
+    camera.updateProjectionMatrix();
+    updateZoomUI();
+}
+
+function startZoom() {
+    if (currentWeapon !== WEAPONS.SNIPER || isZoomed) return;
+    
+    isZoomed = true;
+    camera.fov = zoomedFOV;
+    camera.updateProjectionMatrix();
+    updateZoomUI();
+}
+
+function stopZoom() {
+    if (!isZoomed) return;
+    
+    isZoomed = false;
+    camera.fov = normalFOV;
+    camera.updateProjectionMatrix();
+    updateZoomUI();
+}
+
+function updateZoomUI() {
+    const zoomStatus = document.getElementById('zoom-status');
+    if (zoomStatus) {
+        if (currentWeapon === WEAPONS.SNIPER && isZoomed) {
+            zoomStatus.textContent = 'ZOOM AKTIV';
+            zoomStatus.style.display = 'block';
+        } else {
+            zoomStatus.style.display = 'none';
+        }
+    }
+}
+
+function updateCooldownUI() {
+    const cooldownBar = document.getElementById('cooldown-bar');
+    const cooldownFill = document.getElementById('cooldown-fill');
+    
+    if (!cooldownBar || !cooldownFill) return;
+    
+    const currentTime = Date.now();
+    const timeSinceLastShot = currentTime - lastShotTime;
+    const cooldownTime = currentWeapon.cooldown;
+    
+    if (timeSinceLastShot < cooldownTime) {
+        // Cooldown aktiv - Balken anzeigen
+        const progress = Math.min(1, timeSinceLastShot / cooldownTime);
+        cooldownBar.style.display = 'block';
+        cooldownFill.style.width = (progress * 100) + '%';
+        cooldownFill.style.backgroundColor = progress === 1 ? '#00ff00' : '#ff6600';
+    } else {
+        // Cooldown abgeschlossen - Balken ausblenden
+        cooldownBar.style.display = 'none';
+    }
+}
+
+function resetZoom() {
+    if (isZoomed) {
+        isZoomed = false;
+        camera.fov = normalFOV;
+        camera.updateProjectionMatrix();
+        updateZoomUI();
     }
 }
 
@@ -728,6 +1123,7 @@ function animate() {
     
     updatePlayer();
     updateBullets();
+    updateCooldownUI(); // Cooldown-Balken aktualisieren
     
     renderer.render(scene, camera);
 }
@@ -757,10 +1153,16 @@ function onKeyDown(event) {
             break;
         case 'Digit1':
             currentWeapon = WEAPONS.RIFLE;
+            resetZoom(); // Zoom zurücksetzen wenn andere Waffe gewählt
             updateWeaponUI();
             break;
         case 'Digit2':
             currentWeapon = WEAPONS.SHOTGUN;
+            resetZoom(); // Zoom zurücksetzen wenn andere Waffe gewählt
+            updateWeaponUI();
+            break;
+        case 'Digit3':
+            currentWeapon = WEAPONS.SNIPER;
             updateWeaponUI();
             break;
         case 'Escape':
@@ -796,12 +1198,32 @@ function onKeyUp(event) {
 }
 
 function onMouseClick(event) {
-    if (gameStarted && isPointerLocked && event.button === 0) {
-        shoot();
+    if (gameStarted && isPointerLocked) {
+        if (event.button === 0) { // Linke Maustaste - Schießen
+            shoot();
+        }
     }
     
     if (!isPointerLocked && gameStarted) {
         document.body.requestPointerLock();
+    }
+}
+
+function onMouseDown(event) {
+    if (gameStarted && isPointerLocked) {
+        if (event.button === 2) { // Rechte Maustaste - Zoom start
+            event.preventDefault();
+            startZoom();
+        }
+    }
+}
+
+function onMouseUp(event) {
+    if (gameStarted && isPointerLocked) {
+        if (event.button === 2) { // Rechte Maustaste - Zoom stop
+            event.preventDefault();
+            stopZoom();
+        }
     }
 }
 
@@ -812,12 +1234,18 @@ function onPointerLockChange() {
 function onMouseMove(event) {
     if (!isPointerLocked || !gameStarted) return;
     
+    // Angepasste Maussensitivität für Zoom
+    let sensitivity = MOUSE_SENSITIVITY;
+    if (currentWeapon === WEAPONS.SNIPER && isZoomed) {
+        sensitivity *= 0.3; // Reduzierte Sensitivität beim Zoomen
+    }
+    
     // Euler-Objekt für bessere Rotation verwenden
     const euler = new THREE.Euler(0, 0, 0, 'YXZ');
     euler.setFromQuaternion(camera.quaternion);
     
-    euler.y -= event.movementX * MOUSE_SENSITIVITY;
-    euler.x -= event.movementY * MOUSE_SENSITIVITY;
+    euler.y -= event.movementX * sensitivity;
+    euler.x -= event.movementY * sensitivity;
     
     // Vertikale Rotation begrenzen
     euler.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, euler.x));

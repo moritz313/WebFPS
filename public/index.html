@@ -18,6 +18,9 @@
     <div id="ui">
         <div id="hud">
             <div id="crosshair">+</div>
+            <div id="cooldown-bar" style="display: none; position: absolute; top: 52%; left: 50%; transform: translateX(-50%); width: 60px; height: 4px; border: 1px solid #fff; background-color: rgba(0,0,0,0.3);">
+                <div id="cooldown-fill" style="height: 100%; background-color: #ff6600; width: 0%; transition: width 0.1s;"></div>
+            </div>
             <div id="health">
                 <span>Leben: </span>
                 <span id="healthValue">100</span>
@@ -29,6 +32,9 @@
                 <span id="weapon-icon">🔫</span>
                 <span>Waffe: </span>
                 <span id="weapon-display">Gewehr</span>
+            </div>
+            <div id="zoom-status" style="display: none; color: #0088ff; font-weight: bold; font-size: 16px;">
+                ZOOM AKTIV
             </div>
         </div>
         
@@ -42,8 +48,10 @@
                 <p>Leertaste - Springen</p>
                 <p>Maus - Umschauen</p>
                 <p>Linke Maustaste - Schießen</p>
+                <p>Rechte Maustaste (halten) - Zoom (Sniper)</p>
                 <p>1 - Gewehr</p>
                 <p>2 - Shotgun</p>
+                <p>3 - Sniper</p>
                 <p>ESC - Menü</p>
             </div>
         </div>
