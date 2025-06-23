@@ -1,0 +1,201 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: #000;
+    overflow: hidden;
+    cursor: none;
+}
+
+#game-container {
+    width: 100vw;
+    height: 100vh;
+}
+
+#gameCanvas {
+    display: block;
+}
+
+#ui {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 1000;
+}
+
+#hud {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    color: white;
+    font-size: 18px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+}
+
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 24px;
+    font-weight: bold;
+    color: #ff0000;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    pointer-events: none;
+}
+
+#health {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    padding: 10px 15px;
+    background: rgba(0,0,0,0.7);
+    border-radius: 5px;
+    border: 2px solid #00ff00;
+}
+
+#health.low {
+    border-color: #ff0000;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+#ammo {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    padding: 10px 15px;
+    background: rgba(0,0,0,0.7);
+    border-radius: 5px;
+    border: 2px solid #0099ff;
+}
+
+#weapon {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    padding: 10px 15px;
+    background: rgba(0,0,0,0.7);
+    border-radius: 5px;
+    border: 2px solid #ff9900;
+}
+
+#weapon-display {
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+#weapon-icon {
+    font-size: 20px;
+    margin-right: 8px;
+    display: inline-block;
+    min-width: 25px;
+}
+
+#menu {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.9);
+    padding: 40px;
+    border-radius: 10px;
+    text-align: center;
+    color: white;
+    pointer-events: all;
+    border: 2px solid #00ff00;
+}
+
+#menu h1 {
+    color: #00ff00;
+    margin-bottom: 30px;
+    font-size: 32px;
+}
+
+#startBtn {
+    background: #00ff00;
+    color: black;
+    border: none;
+    padding: 15px 30px;
+    font-size: 18px;
+    font-weight: bold;
+    border-radius: 5px;
+    cursor: pointer;
+    margin-bottom: 30px;
+    transition: all 0.3s;
+}
+
+#startBtn:hover {
+    background: #00cc00;
+    transform: scale(1.05);
+}
+
+#instructions {
+    text-align: left;
+}
+
+#instructions h3 {
+    color: #00ff00;
+    margin-bottom: 15px;
+}
+
+#instructions p {
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+#death-screen {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(255,0,0,0.9);
+    padding: 30px;
+    border-radius: 10px;
+    text-align: center;
+    color: white;
+    pointer-events: all;
+    border: 2px solid #ff0000;
+}
+
+#death-screen h2 {
+    margin-bottom: 20px;
+    font-size: 28px;
+}
+
+#death-screen p {
+    font-size: 18px;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* Mauszeiger ausblenden im Spiel */
+body.playing {
+    cursor: none;
+}
+
+/* Loading Screen */
+.loading {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-size: 24px;
+    z-index: 2000;
+} 

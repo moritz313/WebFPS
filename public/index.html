@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebFPS - Multiplayer Shooter</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+    <script>
+        // Fallback für Three.js falls CDN fehlschlägt
+        if (typeof THREE === 'undefined') {
+            document.write('<script src="/lib/three.min.js"><\/script>');
+        }
+    </script>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div id="ui">
+        <div id="hud">
+            <div id="crosshair">+</div>
+            <div id="health">
+                <span>Leben: </span>
+                <span id="healthValue">100</span>
+            </div>
+            <div id="ammo">
+                <span>Munition: ∞</span>
+            </div>
+            <div id="weapon">
+                <span id="weapon-icon">🔫</span>
+                <span>Waffe: </span>
+                <span id="weapon-display">Gewehr</span>
+            </div>
+        </div>
+        
+        <div id="menu" class="hidden">
+            <h1>WebFPS Multiplayer</h1>
+            <button id="startBtn">Spiel starten</button>
+            <div id="instructions">
+                <h3>Steuerung:</h3>
+                <p>WASD - Bewegung</p>
+                <p>Shift - Sprinten</p>
+                <p>Leertaste - Springen</p>
+                <p>Maus - Umschauen</p>
+                <p>Linke Maustaste - Schießen</p>
+                <p>1 - Gewehr</p>
+                <p>2 - Shotgun</p>
+                <p>ESC - Menü</p>
+            </div>
+        </div>
+        
+        <div id="death-screen" class="hidden">
+            <h2>Du wurdest eliminiert!</h2>
+            <p>Respawn in <span id="respawn-timer">5</span> Sekunden...</p>
+        </div>
+    </div>
+
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        // Warten bis alle Scripts geladen sind, dann game.js laden
+        window.addEventListener('load', function() {
+            if (typeof THREE !== 'undefined' && typeof io !== 'undefined') {
+                const script = document.createElement('script');
+                script.src = 'game.js';
+                document.body.appendChild(script);
+            } else {
+                console.error('Three.js oder Socket.io nicht geladen');
+            }
+        });
+    </script>
+</body>
+</html> 
