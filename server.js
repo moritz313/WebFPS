@@ -94,7 +94,7 @@ io.on('connection', (socket) => {
             directionZ: bulletData.directionZ,
             speed: 50,
             lifetime: 3000, // 3 Sekunden
-            damage: bulletData.damage || 25,
+            damage: bulletData.damage || 15,
             weaponType: bulletData.weaponType || 'rifle'
         };
         

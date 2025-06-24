@@ -12,6 +12,16 @@
             document.write('<script src="/lib/three.min.js"><\/script>');
         }
     </script>
+    <!-- Kein GLTFLoader mehr nötig - Shotgun ist hardcoded! -->
+    <script>
+        // Einfach warten bis THREE.js geladen ist
+        window.addEventListener('load', function() {
+            setTimeout(function() {
+                console.log('✅ THREE.js verfügbar:', typeof THREE !== 'undefined');
+                console.log('🎯 GLTFLoader wird nicht mehr benötigt - Shotgun ist hardcoded!');
+            }, 500);
+        });
+    </script>
     <script src="/socket.io/socket.io.js"></script>
 </head>
 <body>

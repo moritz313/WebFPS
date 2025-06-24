@@ -29,7 +29,7 @@ const MOUSE_SENSITIVITY = 0.002;
 const WEAPONS = {
     RIFLE: {
         name: 'Gewehr',
-        damage: 25,
+        damage: 15,
         bulletsPerShot: 1,
         spread: 0,
         color: 0x00ff00,
@@ -38,7 +38,7 @@ const WEAPONS = {
     SHOTGUN: {
         name: 'Shotgun',
         damage: 15,
-        bulletsPerShot: 8,
+        bulletsPerShot: 4,
         spread: 0.15,
         color: 0xff4444,
         cooldown: 800 // 0.8 Sekunden
@@ -54,6 +54,17 @@ const WEAPONS = {
 };
 
 let currentWeapon = WEAPONS.RIFLE;
+
+// Waffen-Modelle
+let weaponModels = {};
+let currentWeaponModel = null;
+let weaponGroup = null; // Gruppe für Waffen-Positionierung
+
+// Debug/Preview Variablen
+let previewScene = null;
+let previewCamera = null;
+let previewRenderer = null;
+let previewRifleModel = null;
 
 // Bewegungs-Variablen
 let velocityY = 0;
@@ -434,11 +445,11 @@ function createArena() {
             });
             
             // Boden erstellen und zur Szene hinzufügen
-            const floor = new THREE.Mesh(floorGeometry, floorMaterial);
-            floor.rotation.x = -Math.PI / 2;
-            floor.receiveShadow = true;
+    const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
             floor.name = 'textured-floor';
-            scene.add(floor);
+    scene.add(floor);
             
             console.log('🏗️ Texturierter Boden zur Szene hinzugefügt');
         },
@@ -484,17 +495,17 @@ function createArena() {
             const wallMaterial = new THREE.MeshLambertMaterial({ 
                 map: wallTexture
             });
-            
-            // Nord-Wand
+    
+    // Nord-Wand
             wallTexture.repeat.set(20, 2); // Angepasst für Wand-Dimensionen
-            const northWall = new THREE.Mesh(
-                new THREE.BoxGeometry(100, wallHeight, wallThickness),
-                wallMaterial
-            );
-            northWall.position.set(0, wallHeight/2, -50);
-            northWall.castShadow = true;
+    const northWall = new THREE.Mesh(
+        new THREE.BoxGeometry(100, wallHeight, wallThickness),
+        wallMaterial
+    );
+    northWall.position.set(0, wallHeight/2, -50);
+    northWall.castShadow = true;
             northWall.name = 'north-wall';
-            scene.add(northWall);
+    scene.add(northWall);
             
             // Süd-Wand
             const southWallTexture = wallTexture.clone();
@@ -558,36 +569,36 @@ function createArena() {
             northWall.castShadow = true;
             northWall.name = 'fallback-north-wall';
             scene.add(northWall);
-            
-            // Süd-Wand
-            const southWall = new THREE.Mesh(
-                new THREE.BoxGeometry(100, wallHeight, wallThickness),
-                wallMaterial
-            );
-            southWall.position.set(0, wallHeight/2, 50);
-            southWall.castShadow = true;
+    
+    // Süd-Wand
+    const southWall = new THREE.Mesh(
+        new THREE.BoxGeometry(100, wallHeight, wallThickness),
+        wallMaterial
+    );
+    southWall.position.set(0, wallHeight/2, 50);
+    southWall.castShadow = true;
             southWall.name = 'fallback-south-wall';
-            scene.add(southWall);
-            
-            // West-Wand
-            const westWall = new THREE.Mesh(
-                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-                wallMaterial
-            );
-            westWall.position.set(-50, wallHeight/2, 0);
-            westWall.castShadow = true;
+    scene.add(southWall);
+    
+    // West-Wand
+    const westWall = new THREE.Mesh(
+        new THREE.BoxGeometry(wallThickness, wallHeight, 100),
+        wallMaterial
+    );
+    westWall.position.set(-50, wallHeight/2, 0);
+    westWall.castShadow = true;
             westWall.name = 'fallback-west-wall';
-            scene.add(westWall);
-            
-            // Ost-Wand
-            const eastWall = new THREE.Mesh(
-                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-                wallMaterial
-            );
-            eastWall.position.set(50, wallHeight/2, 0);
-            eastWall.castShadow = true;
+    scene.add(westWall);
+    
+    // Ost-Wand
+    const eastWall = new THREE.Mesh(
+        new THREE.BoxGeometry(wallThickness, wallHeight, 100),
+        wallMaterial
+    );
+    eastWall.position.set(50, wallHeight/2, 0);
+    eastWall.castShadow = true;
             eastWall.name = 'fallback-east-wall';
-            scene.add(eastWall);
+    scene.add(eastWall);
             
             console.log('🧱 Fallback-Wände zur Szene hinzugefügt');
         }
@@ -614,6 +625,107 @@ function setupCamera() {
     
     camera.position.set(spawnX, PLAYER_HEIGHT, spawnZ);
     console.log(`Spieler gespawnt bei (${spawnX.toFixed(2)}, ${PLAYER_HEIGHT}, ${spawnZ.toFixed(2)}) nach ${attempts} Versuchen`);
+    
+    // Waffen-Gruppe erstellen und an Kamera anhängen
+    weaponGroup = new THREE.Group();
+    camera.add(weaponGroup);
+    
+    // Waffen-Modelle laden
+    loadWeaponModels();
+}
+
+// Waffen-Modelle laden (HARDCODED aus deinen Blockbench-Daten)
+function loadWeaponModels() {
+    console.log('🔫 Erstelle Waffen-Modelle aus Blockbench-Daten...');
+    
+    // SHOTGUN (hardcoded aus deiner shotgun.gltf)
+    var shotgunGroup = new THREE.Group();
+    shotgunGroup.name = "FPS_Shotgun";
+    
+    // Teil 1: Hauptlauf
+    var barrel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5625, 0.125, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+    );
+    barrel.position.set(0.375, 0.25, 0);
+    shotgunGroup.add(barrel);
+    
+    // Teil 2: Laufverlängerung
+    var barrelExt = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5625, 0.125, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x1a1a1a })
+    );
+    barrelExt.position.set(0.375, 0.25, 0.0625);
+    shotgunGroup.add(barrelExt);
+    
+    // Teil 3: Schaft mit Rotation
+    var stock = new THREE.Mesh(
+        new THREE.BoxGeometry(0.125, 0.275, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+    );
+    stock.position.set(-0.125, 0.0625, 0);
+    stock.rotation.z = -0.17364817766693033;
+    shotgunGroup.add(stock);
+    
+    // Teil 4: Griff
+    var grip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.375, 0.25, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x654321 })
+    );
+    grip.position.set(0, 0.1875, 0);
+    shotgunGroup.add(grip);
+    
+    // Teil 5: Obergriff mit Rotation
+    var topGrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.125, 0.125, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+    );
+    topGrip.position.set(0, 0.375, 0);
+    topGrip.rotation.z = 0.1521233861899167;
+    shotgunGroup.add(topGrip);
+    
+    // Shotgun für First-Person View anpassen
+    shotgunGroup.scale.set(0.8, 0.8, 0.8); // Passende Größe
+    shotgunGroup.position.set(0.4, -0.4, -0.6); // Rechts unten
+    shotgunGroup.rotation.set(0.1, 0.2, 0); // Leichte Neigung
+    
+    // Schatten aktivieren
+    shotgunGroup.traverse((child) => {
+        if (child.isMesh) {
+            child.castShadow = true;
+            child.receiveShadow = true;
+        }
+    });
+    
+    // Alle Waffen bekommen die Shotgun (für jetzt)
+    weaponModels['rifle'] = shotgunGroup.clone();
+    weaponModels['shotgun'] = shotgunGroup.clone();
+    weaponModels['sniper'] = shotgunGroup.clone();
+    
+    console.log('✅ Blockbench Shotgun für alle Waffen erstellt');
+    
+    // Shotgun als Standard-Waffe anzeigen
+    showWeaponModel('rifle');
+}
+
+// Waffen-Modell anzeigen/wechseln
+function showWeaponModel(weaponType) {
+    if (!weaponGroup) return;
+    
+    // Aktuelles Modell entfernen
+    if (currentWeaponModel) {
+        weaponGroup.remove(currentWeaponModel);
+        currentWeaponModel = null;
+    }
+    
+    // Neues Modell anzeigen
+    if (weaponModels[weaponType]) {
+        currentWeaponModel = weaponModels[weaponType].clone();
+        weaponGroup.add(currentWeaponModel);
+        console.log(`🔫 Waffe gewechselt zu: ${weaponType}`);
+    } else {
+        console.log(`⚠️ Modell für ${weaponType} nicht geladen`);
+    }
 }
 
 function createObstacles() {
@@ -646,7 +758,7 @@ function createObstacles() {
             boxTexture.wrapT = THREE.RepeatWrapping;
             
             // Hindernisse mit Textur erstellen
-            mapObstacles.forEach((obstacle, index) => {
+    mapObstacles.forEach((obstacle, index) => {
                 console.log(`Erstelle texturiertes Hindernis ${index + 1}:`, obstacle);
                 
                 // Individuelle Textur für jede Box
@@ -661,23 +773,23 @@ function createObstacles() {
                 const boxMaterial = new THREE.MeshLambertMaterial({ 
                     map: obstacleTexture
                 });
-                
-                const box = new THREE.Mesh(
-                    new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
-                    boxMaterial
-                );
-                
-                box.position.set(obstacle.x, obstacle.y, obstacle.z);
-                box.castShadow = true;
-                box.receiveShadow = true;
-                box.userData.isObstacle = true;
-                box.userData.obstacleData = obstacle;
+        
+        const box = new THREE.Mesh(
+            new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
+            boxMaterial
+        );
+        
+        box.position.set(obstacle.x, obstacle.y, obstacle.z);
+        box.castShadow = true;
+        box.receiveShadow = true;
+        box.userData.isObstacle = true;
+        box.userData.obstacleData = obstacle;
                 box.name = `textured-obstacle-${index + 1}`;
-                
-                scene.add(box);
+        
+        scene.add(box);
                 console.log(`✅ Texturiertes Hindernis ${index + 1} zur Szene hinzugefügt bei (${obstacle.x}, ${obstacle.y}, ${obstacle.z})`);
-            });
-            
+    });
+    
             console.log(`🎉 ${mapObstacles.length} texturierte Hindernisse erfolgreich erstellt. Szenen-Kinder:`, scene.children.length);
         },
         function(progress) {
@@ -787,7 +899,7 @@ function createBulletVisual(bulletData) {
         playerId: bulletData.playerId,
         direction: new THREE.Vector3(bulletData.directionX, bulletData.directionY, bulletData.directionZ),
         speed: bulletData.speed,
-        damage: bulletData.damage || 25
+        damage: bulletData.damage || 15
     };
     
     bullets.push(bulletMesh);
@@ -1154,15 +1266,18 @@ function onKeyDown(event) {
         case 'Digit1':
             currentWeapon = WEAPONS.RIFLE;
             resetZoom(); // Zoom zurücksetzen wenn andere Waffe gewählt
+            showWeaponModel('rifle');
             updateWeaponUI();
             break;
         case 'Digit2':
             currentWeapon = WEAPONS.SHOTGUN;
             resetZoom(); // Zoom zurücksetzen wenn andere Waffe gewählt
+            showWeaponModel('shotgun');
             updateWeaponUI();
             break;
         case 'Digit3':
             currentWeapon = WEAPONS.SNIPER;
+            showWeaponModel('sniper');
             updateWeaponUI();
             break;
         case 'Escape':
@@ -1200,7 +1315,7 @@ function onKeyUp(event) {
 function onMouseClick(event) {
     if (gameStarted && isPointerLocked) {
         if (event.button === 0) { // Linke Maustaste - Schießen
-            shoot();
+        shoot();
         }
     }
     
@@ -1264,3 +1379,120 @@ window.addEventListener('resize', () => {
 
 // Menü initial anzeigen
 menu.classList.remove('hidden'); 
+
+// ===== TITLESCREEN SHOTGUN =====
+// Erstelle eine große rotierende Shotgun für das Menu
+let menuScene = null;
+let menuCamera = null;
+let menuRenderer = null;
+let menuShotgun = null;
+
+function createMenuShotgun() {
+    console.log('🎯 Erstelle Titlescreen Shotgun...');
+    
+    const canvas = document.getElementById('gameCanvas');
+    if (!canvas) {
+        console.error('❌ Canvas nicht gefunden');
+        return;
+    }
+    
+    // Menu Scene Setup
+    menuScene = new THREE.Scene();
+    menuCamera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    menuRenderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true });
+    
+    menuRenderer.setSize(window.innerWidth, window.innerHeight);
+    menuRenderer.setClearColor(0x000000, 0); // Transparenter Hintergrund
+    
+    // Licht für Menu
+    const menuLight = new THREE.DirectionalLight(0xffffff, 2);
+    menuLight.position.set(5, 5, 5);
+    menuScene.add(menuLight);
+    
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.5);
+    menuScene.add(ambientLight);
+    
+    // Kamera Position
+    menuCamera.position.set(0, 0, 3);
+    
+    // SHOTGUN für Menu erstellen (größer)
+    var shotgunGroup = new THREE.Group();
+    shotgunGroup.name = "Menu_Shotgun";
+    
+    // Teil 1: Hauptlauf
+    var barrel = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5625, 0.125, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+    );
+    barrel.position.set(0.375, 0.25, 0);
+    barrel.castShadow = true;
+    shotgunGroup.add(barrel);
+    
+    // Teil 2: Laufverlängerung
+    var barrelExt = new THREE.Mesh(
+        new THREE.BoxGeometry(0.5625, 0.125, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x1a1a1a })
+    );
+    barrelExt.position.set(0.375, 0.25, 0.0625);
+    barrelExt.castShadow = true;
+    shotgunGroup.add(barrelExt);
+    
+    // Teil 3: Schaft mit Rotation
+    var stock = new THREE.Mesh(
+        new THREE.BoxGeometry(0.125, 0.275, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x8B4513 })
+    );
+    stock.position.set(-0.125, 0.0625, 0);
+    stock.rotation.z = -0.17364817766693033;
+    stock.castShadow = true;
+    shotgunGroup.add(stock);
+    
+    // Teil 4: Griff
+    var grip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.375, 0.25, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x654321 })
+    );
+    grip.position.set(0, 0.1875, 0);
+    grip.castShadow = true;
+    shotgunGroup.add(grip);
+    
+    // Teil 5: Obergriff mit Rotation
+    var topGrip = new THREE.Mesh(
+        new THREE.BoxGeometry(0.125, 0.125, 0.125),
+        new THREE.MeshLambertMaterial({ color: 0x2a2a2a })
+    );
+    topGrip.position.set(0, 0.375, 0);
+    topGrip.rotation.z = 0.1521233861899167;
+    topGrip.castShadow = true;
+    shotgunGroup.add(topGrip);
+    
+    // Shotgun für Menu skalieren und positionieren
+    shotgunGroup.scale.set(3, 3, 3); // Groß für Menu
+    shotgunGroup.position.set(1.5, -0.5, 0); // Rechts im Menu
+    
+    menuShotgun = shotgunGroup;
+    menuScene.add(menuShotgun);
+    
+    console.log('✅ Menu Shotgun erstellt');
+    
+    // Menu Render Loop starten
+    function menuRender() {
+        if (!gameStarted && menuShotgun) {
+            requestAnimationFrame(menuRender);
+            
+            // Shotgun rotieren
+            menuShotgun.rotation.y += 0.02;
+            menuShotgun.rotation.x += 0.01;
+            
+            menuRenderer.render(menuScene, menuCamera);
+        }
+    }
+    
+    menuRender();
+    console.log('🎬 Menu Shotgun Animation gestartet');
+}
+
+// Menu Shotgun beim Laden erstellen
+setTimeout(createMenuShotgun, 1000);
+
+console.log('🎯 Hardcoded Shotgun bereit - Menu und Spiel Modelle werden geladen!'); 
