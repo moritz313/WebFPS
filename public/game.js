@@ -38,7 +38,7 @@ const WEAPONS = {
     SHOTGUN: {
         name: 'Shotgun',
         damage: 15,
-        bulletsPerShot: 4,
+        bulletsPerShot: 8,
         spread: 0.15,
         color: 0xff4444,
         cooldown: 800 // 0.8 Sekunden
@@ -127,16 +127,69 @@ function checkVerticalCollisionFromAbove(x, y, z, playerRadius = 0.5) {
     return { collision: false };
 }
 
+// Zufällige Namen für Spieler
+const RANDOM_NAMES = [
+    'Larry', 'Bob', 'Harry', 'Jason', 'Timmy', 'Amogus',
+    'xXNoobSlayerXx', 'SneakyBanana', 'CaptainChaos', 'NinjaToast',
+    'PixelWarrior', 'FluffyDestroyer', 'RocketPanda', 'ShadowMuffin',
+    'LazerKitten', 'ThunderPickle'
+];
+
+// Zufällige Farben für Spieler
+const RANDOM_COLORS = [
+    '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#ff00ff', '#00ffff',
+    '#ff8000', '#8000ff', '#0080ff', '#ff0080', '#80ff00', '#ff4080',
+    '#40ff80', '#8040ff', '#ff8040', '#4080ff'
+];
+
 // UI Elemente
 const menu = document.getElementById('menu');
 const startBtn = document.getElementById('startBtn');
+const usernameInput = document.getElementById('usernameInput');
+const colorPicker = document.getElementById('colorPicker');
 const healthValue = document.getElementById('healthValue');
 const healthBar = document.getElementById('health');
 const deathScreen = document.getElementById('death-screen');
 const respawnTimer = document.getElementById('respawn-timer');
+const hitmarker = document.getElementById('hitmarker');
+const hitmarkerImage = document.getElementById('hitmarker-image');
+const scoreboard = document.getElementById('scoreboard');
+
+// Scoreboard-Daten
+let playerStats = {}; // { playerId: { kills: 0, deaths: 0, username: '', color: '' } }
+let isScoreboardVisible = false;
+
+// Zufälligen Namen und Farbe setzen
+function setRandomPlayerData() {
+    // Zufälliger Name
+    const randomName = RANDOM_NAMES[Math.floor(Math.random() * RANDOM_NAMES.length)];
+    if (usernameInput) {
+        usernameInput.value = randomName;
+    }
+    
+    // Zufällige Farbe
+    const randomColor = RANDOM_COLORS[Math.floor(Math.random() * RANDOM_COLORS.length)];
+    if (colorPicker) {
+        colorPicker.value = randomColor;
+    }
+}
 
 // Event Listeners
 startBtn.addEventListener('click', startGame);
+usernameInput.addEventListener('keypress', (event) => {
+    if (event.key === 'Enter') {
+        startGame();
+    }
+});
+
+colorPicker.addEventListener('change', (event) => {
+    // Farbe auch während des Spiels ändern
+    if (gameStarted && socket) {
+        socket.emit('setPlayerData', { 
+            color: event.target.value 
+        });
+    }
+});
 document.addEventListener('keydown', onKeyDown);
 document.addEventListener('keyup', onKeyUp);
 document.addEventListener('click', onMouseClick);
@@ -158,25 +211,35 @@ socket.onAny((eventName, ...args) => {
 socket.on('currentPlayers', (serverPlayers) => {
     console.log('Aktuelle Spieler erhalten:', Object.keys(serverPlayers));
     Object.keys(serverPlayers).forEach(id => {
+        const player = serverPlayers[id];
+        
+        // Alle Spieler zum Scoreboard hinzufügen
+        addPlayerToStats(id, player.username, player.color);
+        
         if (id !== socket.id) {
-            console.log('Füge anderen Spieler hinzu:', id);
+            console.log('Füge anderen Spieler hinzu:', id, 'Daten:', player);
             // Nur hinzufügen wenn Spiel läuft UND Szene existiert
             if (gameStarted && scene) {
-                addOtherPlayer(serverPlayers[id]);
+                addOtherPlayer(player);
             } else {
                 // Speichern für später wenn Spiel startet
                 window.pendingPlayers = window.pendingPlayers || {};
-                window.pendingPlayers[id] = serverPlayers[id];
+                window.pendingPlayers[id] = player;
                 console.log('Spieler für später gespeichert (Spiel nicht gestartet)');
             }
         } else {
-            console.log('Das bin ich selbst:', id);
+            console.log('Das bin ich selbst:', id, 'Daten:', player);
         }
     });
 });
 
 socket.on('newPlayer', (playerData) => {
     console.log('Neuer Spieler Event erhalten:', playerData);
+    console.log('Username:', playerData.username, 'Farbe:', playerData.color);
+    
+    // Zum Scoreboard hinzufügen
+    addPlayerToStats(playerData.id, playerData.username, playerData.color);
+    
     if (gameStarted && scene) {
         addOtherPlayer(playerData);
     } else {
@@ -197,6 +260,34 @@ socket.on('playerMoved', (playerData) => {
     }
 });
 
+socket.on('playerDataChanged', (data) => {
+    console.log('Spieler-Daten geändert:', data.playerId, data);
+    if (players[data.playerId]) {
+        const playerGroup = players[data.playerId];
+        
+        // Username aktualisieren wenn vorhanden
+        if (data.username && playerGroup.userData && playerGroup.userData.nameTag) {
+            const newNameTag = createNameTag(data.username);
+            newNameTag.position.copy(playerGroup.userData.nameTag.position);
+            
+            // Altes NameTag entfernen
+            playerGroup.remove(playerGroup.userData.nameTag);
+            
+            // Neues NameTag hinzufügen
+            playerGroup.add(newNameTag);
+            playerGroup.userData.nameTag = newNameTag;
+        }
+        
+        // Farbe aktualisieren wenn vorhanden
+        if (data.color) {
+            const playerMesh = playerGroup.children.find(child => child.geometry && child.geometry.type === 'BoxGeometry');
+            if (playerMesh && playerMesh.material) {
+                playerMesh.material.color.setHex(new THREE.Color(data.color).getHex());
+            }
+        }
+    }
+});
+
 socket.on('playerDisconnected', (playerId) => {
     if (players[playerId]) {
         scene.remove(players[playerId]);
@@ -206,6 +297,9 @@ socket.on('playerDisconnected', (playerId) => {
     if (window.pendingPlayers && window.pendingPlayers[playerId]) {
         delete window.pendingPlayers[playerId];
     }
+    
+    // Aus Scoreboard entfernen
+    removePlayerFromStats(playerId);
 });
 
 socket.on('bulletFired', (bulletData) => {
@@ -239,6 +333,14 @@ socket.on('playerDied', (playerId) => {
     if (players[playerId]) {
         players[playerId].visible = false;
     }
+    
+    // Death-Statistik aktualisieren (falls nicht über hitConfirmed erfasst)
+    if (playerId === socket.id && playerStats[socket.id]) {
+        playerStats[socket.id].deaths++;
+        if (isScoreboardVisible) {
+            updateScoreboard();
+        }
+    }
 });
 
 socket.on('playerRespawned', (playerData) => {
@@ -249,6 +351,32 @@ socket.on('playerRespawned', (playerData) => {
     } else if (players[playerData.id]) {
         players[playerData.id].position.set(playerData.x, playerData.y, playerData.z);
         players[playerData.id].visible = true;
+    }
+});
+
+socket.on('hitConfirmed', (data) => {
+    console.log('Hit bestätigt:', data);
+    showHitmarker(data.isKill, data.weaponType, data.isHeadshot);
+    playHitSound(data.isKill, data.isHeadshot);
+    
+    // Kill-Statistik aktualisieren
+    if (data.isKill) {
+        console.log('🎯 KILL! Target:', data.targetId);
+        // Eigene Kills erhöhen
+        if (playerStats[socket.id]) {
+            playerStats[socket.id].kills++;
+        }
+        // Target Deaths erhöhen
+        if (playerStats[data.targetId]) {
+            playerStats[data.targetId].deaths++;
+        }
+        // Scoreboard aktualisieren falls sichtbar
+        if (isScoreboardVisible) {
+            updateScoreboard();
+        }
+    }
+    if (data.isHeadshot) {
+        console.log('💥 HEADSHOT!');
     }
 });
 
@@ -286,6 +414,13 @@ function startGame() {
         return;
     }
     
+    // Username validieren
+    const username = usernameInput.value.trim();
+    if (!username || username.length < 1) {
+        alert('Bitte gib einen gültigen Benutzernamen ein!');
+        return;
+    }
+    
     gameStarted = true;
     menu.classList.add('hidden');
     document.body.classList.add('playing');
@@ -314,9 +449,28 @@ function startGame() {
     
     // UI initialisieren
     updateWeaponUI();
+    updateCrosshair(); // Crosshair für Startwaffe setzen
     
     // Pointer Lock für FPS-Steuerung
     document.body.requestPointerLock();
+    
+    // Username und Farbe an Server senden
+    const playerColor = colorPicker.value;
+    socket.emit('setPlayerData', { 
+        username: username,
+        color: playerColor 
+    });
+    
+    // Eigene Daten zum Scoreboard hinzufügen
+    addPlayerToStats(socket.id, username, playerColor);
+    
+    // Audio initialisieren (nach User-Interaktion)
+    console.log('🔊 Lade Audio-System...');
+    initAudio().then(() => {
+        console.log('🎵 Audio-System bereit!');
+    }).catch(error => {
+        console.log('⚠️ Audio-System Fallback aktiv');
+    });
 }
 
 function initThreeJS() {
@@ -828,8 +982,46 @@ function createObstacles() {
     );
 }
 
+function createNameTag(username) {
+    // Canvas für Text erstellen
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    
+    // Canvas Größe setzen
+    canvas.width = 256;
+    canvas.height = 64;
+    
+    // Text Styling
+    context.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.fillStyle = 'white';
+    context.font = 'bold 24px Arial';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    
+    // Text zeichnen
+    context.fillText(username, canvas.width / 2, canvas.height / 2);
+    
+    // Texture aus Canvas erstellen
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.minFilter = THREE.LinearFilter;
+    texture.wrapS = THREE.ClampToEdgeWrapping;
+    texture.wrapT = THREE.ClampToEdgeWrapping;
+    
+    // Material und Geometry für NameTag
+    const nameTagMaterial = new THREE.MeshBasicMaterial({ 
+        map: texture, 
+        transparent: true,
+        alphaTest: 0.1
+    });
+    const nameTagGeometry = new THREE.PlaneGeometry(2, 0.5);
+    const nameTagMesh = new THREE.Mesh(nameTagGeometry, nameTagMaterial);
+    
+    return nameTagMesh;
+}
+
 function addOtherPlayer(playerData) {
-    console.log('Neuer Spieler hinzugefügt:', playerData.id, 'Position:', playerData.x, playerData.y, playerData.z);
+    console.log('Neuer Spieler hinzugefügt:', playerData.id, 'Username:', playerData.username, 'Farbe:', playerData.color, 'Position:', playerData.x, playerData.y, playerData.z);
     
     // Prüfen ob Spieler bereits existiert
     if (players[playerData.id]) {
@@ -840,7 +1032,8 @@ function addOtherPlayer(playerData) {
     
     // Einfacher Box-Körper (erst mal für Tests)
     const playerGeometry = new THREE.BoxGeometry(1, 2, 1);
-    const playerMaterial = new THREE.MeshLambertMaterial({ color: 0xff0000 });
+    const playerColor = playerData.color ? new THREE.Color(playerData.color) : new THREE.Color(0xff0000);
+    const playerMaterial = new THREE.MeshLambertMaterial({ color: playerColor });
     const playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
     
     // Kopf
@@ -849,17 +1042,19 @@ function addOtherPlayer(playerData) {
     const headMesh = new THREE.Mesh(headGeometry, headMaterial);
     headMesh.position.set(0, 1.2, 0);
     
-    // Name-Tag über dem Kopf
-    const nameGeometry = new THREE.BoxGeometry(0.2, 0.2, 0.2);
-    const nameMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
-    const nameMesh = new THREE.Mesh(nameGeometry, nameMaterial);
-    nameMesh.position.set(0, 2, 0);
+    // NameTag über dem Kopf
+    const displayName = playerData.username || 'Spieler';
+    const nameTag = createNameTag(displayName);
+    nameTag.position.set(0, 2.5, 0);
     
     // Gruppe erstellen
     const playerGroup = new THREE.Group();
     playerGroup.add(playerMesh);
     playerGroup.add(headMesh);
-    playerGroup.add(nameMesh);
+    playerGroup.add(nameTag);
+    
+    // NameTag soll immer zur Kamera zeigen
+    playerGroup.userData = { nameTag: nameTag };
     
     // Position setzen
     playerGroup.position.set(playerData.x, playerData.y - 1, playerData.z); // Y-1 da Player auf Boden steht
@@ -906,7 +1101,7 @@ function createBulletVisual(bulletData) {
     scene.add(bulletMesh);
 }
 
-function shoot() {
+function shootInstant() {
     // Cooldown für alle Waffen überprüfen
     const currentTime = Date.now();
     if (currentTime - lastShotTime < currentWeapon.cooldown) {
@@ -914,30 +1109,44 @@ function shoot() {
     }
     lastShotTime = currentTime;
     
+    // SOFORTIGE Erfassung der Kamerarichtung - keine zusätzlichen Berechnungen!
     const baseDirection = new THREE.Vector3(0, 0, -1);
     baseDirection.applyQuaternion(camera.quaternion);
     
+    // SOFORTIGE Erfassung der Position
+    const shootX = camera.position.x;
+    const shootY = camera.position.y;
+    const shootZ = camera.position.z;
+    
     // Je nach Waffe verschiedene Anzahl Bullets erstellen
     for (let i = 0; i < currentWeapon.bulletsPerShot; i++) {
-        const direction = baseDirection.clone();
+        // Kopie der Richtung für jede Kugel
+        let dirX = baseDirection.x;
+        let dirY = baseDirection.y;
+        let dirZ = baseDirection.z;
         
         // Spread für Shotgun hinzufügen
         if (currentWeapon.spread > 0) {
             const spreadX = (Math.random() - 0.5) * currentWeapon.spread;
             const spreadY = (Math.random() - 0.5) * currentWeapon.spread;
             
-            direction.x += spreadX;
-            direction.y += spreadY;
-            direction.normalize();
+            dirX += spreadX;
+            dirY += spreadY;
+            
+            // Schnelle Normalisierung
+            const length = Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+            dirX /= length;
+            dirY /= length;
+            dirZ /= length;
         }
         
         const bulletData = {
-            x: camera.position.x,
-            y: camera.position.y,
-            z: camera.position.z,
-            directionX: direction.x,
-            directionY: direction.y,
-            directionZ: direction.z,
+            x: shootX,
+            y: shootY,
+            z: shootZ,
+            directionX: dirX,
+            directionY: dirY,
+            directionZ: dirZ,
             damage: currentWeapon.damage,
             weaponType: currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper'
         };
@@ -952,10 +1161,133 @@ function shoot() {
         });
     }
     
+    // Waffenschuss-Sound abspielen
+    const weaponType = currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper';
+    playWeaponSound(weaponType);
+    
     // Rückstoß-Effekt - stärker bei Shotgun
     const recoilMultiplier = currentWeapon === WEAPONS.SHOTGUN ? 2 : currentWeapon === WEAPONS.SNIPER ? 1.5 : 1;
     camera.rotation.x += (Math.random() - 0.5) * 0.02 * recoilMultiplier;
     camera.rotation.y += (Math.random() - 0.5) * 0.02 * recoilMultiplier;
+}
+
+// Alte shoot-Funktion für Backward-Compatibility falls irgendwo noch verwendet
+function shoot() {
+    shootInstant();
+}
+
+// Scoreboard Funktionen
+function showScoreboard() {
+    if (!gameStarted) return;
+    isScoreboardVisible = true;
+    updateScoreboard();
+    scoreboard.classList.remove('hidden');
+}
+
+function hideScoreboard() {
+    if (!gameStarted) return;
+    isScoreboardVisible = false;
+    scoreboard.classList.add('hidden');
+}
+
+function updateScoreboard() {
+    if (!scoreboard) return;
+    
+    const playersList = document.getElementById('players-list');
+    if (!playersList) return;
+    
+    console.log('📊 Aktualisiere Scoreboard mit', Object.keys(playerStats).length, 'Spielern');
+    console.log('📊 Player Stats:', playerStats);
+    
+    // Liste leeren
+    playersList.innerHTML = '';
+    
+    // Spieler nach Kills sortieren (höchste zuerst)
+    const sortedPlayers = Object.entries(playerStats).sort((a, b) => {
+        return b[1].kills - a[1].kills;
+    });
+    
+    console.log('📊 Sortierte Spieler:', sortedPlayers);
+    
+    // Spieler-Items erstellen
+    sortedPlayers.forEach(([playerId, stats]) => {
+        const playerItem = document.createElement('div');
+        playerItem.className = 'player-score-item';
+        
+        // Eigenen Spieler hervorheben
+        if (playerId === socket.id) {
+            playerItem.classList.add('own-player');
+        }
+        
+        // K/D Ratio berechnen
+        const kd = stats.deaths > 0 ? (stats.kills / stats.deaths).toFixed(1) : stats.kills.toFixed(1);
+        
+        playerItem.innerHTML = `
+            <div class="player-info">
+                <div class="player-color-dot" style="background-color: ${stats.color || '#ffffff'}"></div>
+                <div class="player-name">${stats.username || 'Unknown'}</div>
+            </div>
+            <div class="player-stats">
+                <div class="stat-item">
+                    <div class="stat-label">K</div>
+                    <div class="stat-value kills">${stats.kills}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">D</div>
+                    <div class="stat-value deaths">${stats.deaths}</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">K/D</div>
+                    <div class="stat-value kd">${kd}</div>
+                </div>
+            </div>
+        `;
+        
+        playersList.appendChild(playerItem);
+    });
+}
+
+function addPlayerToStats(playerId, username, color) {
+    console.log('📊 Füge Spieler zu Stats hinzu:', playerId, username, color);
+    if (!playerStats[playerId]) {
+        playerStats[playerId] = {
+            kills: 0,
+            deaths: 0,
+            username: username || 'Unknown',
+            color: color || '#ffffff'
+        };
+        console.log('📊 Neuer Spieler in Stats:', playerStats[playerId]);
+    } else {
+        // Update existing player data
+        playerStats[playerId].username = username || playerStats[playerId].username;
+        playerStats[playerId].color = color || playerStats[playerId].color;
+        console.log('📊 Spieler-Stats aktualisiert:', playerStats[playerId]);
+    }
+    
+    if (isScoreboardVisible) {
+        updateScoreboard();
+    }
+}
+
+function updatePlayerStats(playerId, kills, deaths) {
+    if (playerStats[playerId]) {
+        playerStats[playerId].kills = kills || 0;
+        playerStats[playerId].deaths = deaths || 0;
+        
+        if (isScoreboardVisible) {
+            updateScoreboard();
+        }
+    }
+}
+
+function removePlayerFromStats(playerId) {
+    if (playerStats[playerId]) {
+        delete playerStats[playerId];
+        
+        if (isScoreboardVisible) {
+            updateScoreboard();
+        }
+    }
 }
 
 function updatePlayer() {
@@ -1065,7 +1397,8 @@ function updateBullets() {
                 if (bullet.userData.playerId === socket.id) {
                     socket.emit('playerHit', {
                         targetId: playerId,
-                        damage: bullet.userData.damage
+                        damage: bullet.userData.damage,
+                        weaponType: currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper'
                     });
                 }
                 
@@ -1127,6 +1460,9 @@ function updateWeaponUI() {
         weaponIcon.style.color = `#${currentWeapon.color.toString(16).padStart(6, '0')}`;
     }
     
+    // Crosshair für aktuelle Waffe aktualisieren
+    updateCrosshair();
+    
     // Zoom-Status aktualisieren
     updateZoomUI();
 }
@@ -1158,6 +1494,31 @@ function stopZoom() {
     updateZoomUI();
 }
 
+function updateCrosshair() {
+    const crosshair = document.getElementById('crosshair');
+    if (!crosshair) return;
+    
+    // Entferne alle Waffen-Klassen
+    crosshair.classList.remove('rifle', 'shotgun', 'sniper', 'zoomed');
+    
+    // Füge entsprechende Klasse basierend auf aktueller Waffe hinzu
+    if (currentWeapon === WEAPONS.RIFLE) {
+        crosshair.className = 'rifle';
+        crosshair.textContent = '+';
+    } else if (currentWeapon === WEAPONS.SHOTGUN) {
+        crosshair.className = 'shotgun';
+        crosshair.textContent = ''; // Leer, da CSS den Kreis zeichnet
+    } else if (currentWeapon === WEAPONS.SNIPER) {
+        crosshair.className = 'sniper';
+        crosshair.textContent = ''; // Leer, da CSS die Linien zeichnet
+        
+        // Zoom-Status hinzufügen wenn gezoomt
+        if (isZoomed) {
+            crosshair.classList.add('zoomed');
+        }
+    }
+}
+
 function updateZoomUI() {
     const zoomStatus = document.getElementById('zoom-status');
     if (zoomStatus) {
@@ -1168,6 +1529,9 @@ function updateZoomUI() {
             zoomStatus.style.display = 'none';
         }
     }
+    
+    // Crosshair für Zoom-Status aktualisieren
+    updateCrosshair();
 }
 
 function updateCooldownUI() {
@@ -1175,6 +1539,13 @@ function updateCooldownUI() {
     const cooldownFill = document.getElementById('cooldown-fill');
     
     if (!cooldownBar || !cooldownFill) return;
+    
+    // Rifle zeigt keine Cooldown-Anzeige
+    if (currentWeapon === WEAPONS.RIFLE) {
+        cooldownBar.style.display = 'none';
+        cooldownBar.classList.remove('complete');
+        return;
+    }
     
     const currentTime = Date.now();
     const timeSinceLastShot = currentTime - lastShotTime;
@@ -1185,10 +1556,20 @@ function updateCooldownUI() {
         const progress = Math.min(1, timeSinceLastShot / cooldownTime);
         cooldownBar.style.display = 'block';
         cooldownFill.style.width = (progress * 100) + '%';
-        cooldownFill.style.backgroundColor = progress === 1 ? '#00ff00' : '#ff6600';
+        
+        // Complete-Klasse für grünen Effekt
+        if (progress >= 1) {
+            cooldownBar.classList.add('complete');
+        } else {
+            cooldownBar.classList.remove('complete');
+        }
     } else {
-        // Cooldown abgeschlossen - Balken ausblenden
-        cooldownBar.style.display = 'none';
+        // Cooldown abgeschlossen - Balken mit kleiner Verzögerung ausblenden
+        cooldownBar.classList.add('complete');
+        setTimeout(() => {
+            cooldownBar.style.display = 'none';
+            cooldownBar.classList.remove('complete');
+        }, 200);
     }
 }
 
@@ -1228,6 +1609,373 @@ function hideDeathScreen() {
     deathScreen.classList.add('hidden');
 }
 
+function showHitmarker(isKill = false, weaponType = 'rifle', isHeadshot = false) {
+    // Entferne vorherige Animation und Klassen
+    hitmarker.classList.remove('hitmarker-show', 'hitmarker-kill', 'hitmarker-headshot', 'hitmarker-sniper');
+    
+    // Reset transform für saubere Animation
+    hitmarker.style.transform = 'translate(-50%, -50%)';
+    
+    // Füge entsprechende Klassen hinzu
+    if (isKill) {
+        hitmarker.classList.add('hitmarker-kill');
+    }
+    if (isHeadshot) {
+        hitmarker.classList.add('hitmarker-headshot');
+    }
+    if (weaponType === 'sniper') {
+        hitmarker.classList.add('hitmarker-sniper');
+    }
+    
+    // Zeige Hitmarker mit Animation
+    hitmarker.classList.add('hitmarker-show');
+    
+    // Nach Animation wieder verstecken
+    setTimeout(() => {
+        hitmarker.classList.remove('hitmarker-show', 'hitmarker-kill', 'hitmarker-headshot', 'hitmarker-sniper');
+        hitmarker.style.display = 'none';
+    }, 400);
+}
+
+// Audio System für Custom Sounds
+let audioContext = null;
+const AUDIO_VOLUME = 0.4; // Master-Lautstärke (0.0 - 1.0)
+const audioBuffers = {}; // Cache für geladene Audio-Dateien
+let audioLoaded = false;
+
+// Sound-Konfiguration
+const SOUND_CONFIG = {
+    // Hit-Sounds
+    hit: {
+        file: '/sounds/hit.mp3', // Ihr Hit-Sound
+        fallback: '/sounds/hit.wav', // Fallback falls MP3 nicht funktioniert
+        volume: 0.6
+    },
+    kill: {
+        file: '/sounds/kill.mp3', // Ihr Kill-Sound  
+        fallback: '/sounds/kill.wav',
+        volume: 0.8
+    },
+    headshot: {
+        file: '/sounds/headshot.mp3', // Ihr Headshot-Sound (optional)
+        fallback: '/sounds/headshot.wav',
+        volume: 1.0
+    },
+    
+    // Waffen-Schuss-Sounds
+    rifle: {
+        file: '/sounds/rifle.mp3', // Gewehr-Schuss
+        fallback: '/sounds/rifle.wav',
+        volume: 0.7
+    },
+    shotgun: {
+        file: '/sounds/shotgun.mp3', // Shotgun-Schuss
+        fallback: '/sounds/shotgun.wav',
+        volume: 0.9
+    },
+    sniper: {
+        file: '/sounds/sniper.mp3', // Sniper-Schuss
+        fallback: '/sounds/sniper.wav',
+        volume: 1.0
+    }
+};
+
+async function initAudio() {
+    try {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        console.log('✅ Audio Context initialisiert');
+        
+        // Preload alle Sounds
+        await preloadSounds();
+        audioLoaded = true;
+        console.log('✅ Alle Sounds geladen');
+        
+    } catch (error) {
+        console.log('❌ Audio Context nicht verfügbar:', error);
+        audioContext = null;
+    }
+}
+
+async function preloadSounds() {
+    const loadPromises = [];
+    
+    for (const [soundName, config] of Object.entries(SOUND_CONFIG)) {
+        loadPromises.push(loadSound(soundName, config));
+    }
+    
+    await Promise.allSettled(loadPromises);
+}
+
+async function loadSound(soundName, config) {
+    try {
+        // Versuche erst die Haupt-Datei zu laden
+        let audioBuffer = await loadAudioFile(config.file);
+        
+        if (!audioBuffer && config.fallback) {
+            // Falls Haupt-Datei fehlschlägt, versuche Fallback
+            console.log(`⚠️ ${config.file} nicht gefunden, versuche Fallback: ${config.fallback}`);
+            audioBuffer = await loadAudioFile(config.fallback);
+        }
+        
+        if (audioBuffer) {
+            audioBuffers[soundName] = {
+                buffer: audioBuffer,
+                volume: config.volume
+            };
+            console.log(`✅ Sound geladen: ${soundName}`);
+        } else {
+            console.log(`❌ Sound nicht gefunden: ${soundName}`);
+            // Erstelle synthetischen Fallback
+            createSyntheticFallback(soundName);
+        }
+        
+    } catch (error) {
+        console.log(`❌ Fehler beim Laden von ${soundName}:`, error);
+        createSyntheticFallback(soundName);
+    }
+}
+
+async function loadAudioFile(url) {
+    try {
+        const response = await fetch(url);
+        if (!response.ok) return null;
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+        return audioBuffer;
+        
+    } catch (error) {
+        return null;
+    }
+}
+
+function createSyntheticFallback(soundName) {
+    // Erstelle synthetischen Sound als Fallback
+    console.log(`🔧 Erstelle synthetischen Fallback für: ${soundName}`);
+    
+    audioBuffers[soundName] = {
+        synthetic: true,
+        volume: SOUND_CONFIG[soundName]?.volume || 0.6
+    };
+}
+
+function playHitSound(isKill = false, isHeadshot = false) {
+    if (!audioContext) return;
+    
+    // Bestimme welcher Sound abgespielt werden soll
+    let soundName = 'hit';
+    if (isHeadshot) {
+        soundName = 'headshot';
+    } else if (isKill) {
+        soundName = 'kill';
+    }
+    
+    // Spiele den Sound ab
+    playSound(soundName);
+}
+
+function playWeaponSound(weaponType) {
+    if (!audioContext) return;
+    
+    // Bestimme Waffen-Sound basierend auf aktueller Waffe
+    let soundName = 'rifle'; // Standard
+    
+    switch (weaponType) {
+        case 'rifle':
+            soundName = 'rifle';
+            break;
+        case 'shotgun':
+            soundName = 'shotgun';
+            break;
+        case 'sniper':
+            soundName = 'sniper';
+            break;
+    }
+    
+    // Spiele Waffen-Sound ab
+    playSound(soundName);
+}
+
+function playSound(soundName) {
+    if (!audioContext) return;
+    
+    try {
+        const soundData = audioBuffers[soundName];
+        
+        if (!soundData) {
+            console.log(`❌ Sound nicht verfügbar: ${soundName}`);
+            return;
+        }
+        
+        if (soundData.synthetic) {
+            // Spiele synthetischen Fallback-Sound ab
+            playSyntheticSound(soundName);
+        } else {
+            // Spiele echten Audio-Buffer ab
+            playAudioBuffer(soundData.buffer, soundData.volume);
+        }
+        
+    } catch (error) {
+        console.log('Fehler beim Abspielen des Sounds:', error);
+    }
+}
+
+function playAudioBuffer(audioBuffer, volume = 1.0) {
+    const source = audioContext.createBufferSource();
+    const gainNode = audioContext.createGain();
+    
+    source.buffer = audioBuffer;
+    source.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    gainNode.gain.setValueAtTime(volume * AUDIO_VOLUME, audioContext.currentTime);
+    
+    source.start(0);
+}
+
+function playSyntheticSound(soundName) {
+    // Fallback zu synthetischen Sounds falls Custom-Sounds nicht laden
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // Sound-Parameter je nach Typ
+    switch (soundName) {
+        case 'kill':
+            oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.15);
+            gainNode.gain.setValueAtTime(0.3 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+            oscillator.type = 'triangle';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.15);
+            break;
+            
+        case 'headshot':
+            oscillator.frequency.setValueAtTime(1200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(600, audioContext.currentTime + 0.1);
+            gainNode.gain.setValueAtTime(0.4 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+            oscillator.type = 'sine';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.1);
+            break;
+            
+        case 'rifle':
+            // Gewehr: Mittlere Frequenz, schnell
+            oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(150, audioContext.currentTime + 0.2);
+            gainNode.gain.setValueAtTime(0.4 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            oscillator.type = 'sawtooth';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+            break;
+            
+        case 'shotgun':
+            // Shotgun: Tiefer, länger, rauh
+            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(80, audioContext.currentTime + 0.4);
+            gainNode.gain.setValueAtTime(0.5 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+            oscillator.type = 'sawtooth';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.4);
+            break;
+            
+        case 'sniper':
+            // Sniper: Sehr tief, lang, kraftvoll
+            oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.6);
+            gainNode.gain.setValueAtTime(0.6 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.6);
+            oscillator.type = 'sawtooth';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.6);
+            break;
+            
+        default: // hit
+            oscillator.frequency.setValueAtTime(800, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(400, audioContext.currentTime + 0.08);
+            gainNode.gain.setValueAtTime(0.2 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.08);
+            oscillator.type = 'triangle';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.08);
+            break;
+    }
+}
+
+// Fallback für Hitmarker-Bild
+hitmarkerImage.addEventListener('error', () => {
+    console.log('Hitmarker-Bild konnte nicht geladen werden, verwende Fallback');
+    hitmarkerImage.style.display = 'none';
+    
+    // Erstelle Fallback-Hitmarker
+    hitmarker.innerHTML = `
+        <div class="fallback-hitmarker">
+            <div class="hitmarker-line hitmarker-top-left"></div>
+            <div class="hitmarker-line hitmarker-top-right"></div>
+            <div class="hitmarker-line hitmarker-bottom-left"></div>
+            <div class="hitmarker-line hitmarker-bottom-right"></div>
+        </div>
+    `;
+});
+
+hitmarkerImage.addEventListener('load', () => {
+    console.log('✅ Hitmarker-Bild erfolgreich geladen');
+});
+
+// Debug-Funktion zum Testen der Sounds (nur in der Konsole verfügbar)
+window.testSound = function(soundName) {
+    if (!audioLoaded) {
+        console.log('❌ Audio noch nicht geladen. Warte bis das Spiel gestartet ist.');
+        return;
+    }
+    
+    console.log(`🔊 Teste Sound: ${soundName}`);
+    playSound(soundName);
+};
+
+// Debug-Info für verfügbare Sounds
+window.listSounds = function() {
+    console.log('🎵 Verfügbare Sounds:');
+    Object.keys(SOUND_CONFIG).forEach(soundName => {
+        const loaded = audioBuffers[soundName] ? '✅' : '❌';
+        const type = audioBuffers[soundName]?.synthetic ? 'synthetisch' : 'custom';
+        console.log(`${loaded} ${soundName} (${type})`);
+    });
+    console.log('\n💡 Verwendung: testSound("hit"), testSound("kill"), testSound("headshot")');
+};
+
+// Debug-Funktionen für Scoreboard
+window.addTestKill = function() {
+    if (playerStats[socket.id]) {
+        playerStats[socket.id].kills++;
+        console.log('🎯 Test-Kill hinzugefügt. Kills:', playerStats[socket.id].kills);
+        if (isScoreboardVisible) {
+            updateScoreboard();
+        }
+    }
+};
+
+window.addTestDeath = function() {
+    if (playerStats[socket.id]) {
+        playerStats[socket.id].deaths++;
+        console.log('💀 Test-Death hinzugefügt. Deaths:', playerStats[socket.id].deaths);
+        if (isScoreboardVisible) {
+            updateScoreboard();
+        }
+    }
+};
+
+window.showStats = function() {
+    console.log('📊 Aktuelle Player Stats:', playerStats);
+    console.log('📊 Scoreboard sichtbar:', isScoreboardVisible);
+};
+
 function animate() {
     if (!gameStarted) return;
     
@@ -1236,6 +1984,13 @@ function animate() {
     updatePlayer();
     updateBullets();
     updateCooldownUI(); // Cooldown-Balken aktualisieren
+    
+    // NameTags zur Kamera drehen
+    Object.values(players).forEach(playerGroup => {
+        if (playerGroup.userData && playerGroup.userData.nameTag) {
+            playerGroup.userData.nameTag.lookAt(camera.position);
+        }
+    });
     
     renderer.render(scene, camera);
 }
@@ -1280,6 +2035,10 @@ function onKeyDown(event) {
             showWeaponModel('sniper');
             updateWeaponUI();
             break;
+        case 'Tab':
+            event.preventDefault(); // Verhindert Browser-Tab-Wechsel
+            showScoreboard();
+            break;
         case 'Escape':
             if (isPointerLocked) {
                 document.exitPointerLock();
@@ -1309,14 +2068,16 @@ function onKeyUp(event) {
         case 'ShiftRight':
             keys.shift = false;
             break;
+        case 'Tab':
+            hideScoreboard();
+            break;
     }
 }
 
 function onMouseClick(event) {
-    if (gameStarted && isPointerLocked) {
-        if (event.button === 0) { // Linke Maustaste - Schießen
-        shoot();
-        }
+    // Audio Context aktivieren falls noch nicht geschehen (Browser-Schutz)
+    if (!audioContext && gameStarted) {
+        initAudio();
     }
     
     if (!isPointerLocked && gameStarted) {
@@ -1326,7 +2087,10 @@ function onMouseClick(event) {
 
 function onMouseDown(event) {
     if (gameStarted && isPointerLocked) {
-        if (event.button === 2) { // Rechte Maustaste - Zoom start
+        if (event.button === 0) { // Linke Maustaste - SOFORTIGES Schießen
+            event.preventDefault();
+            shootInstant();
+        } else if (event.button === 2) { // Rechte Maustaste - Zoom start
             event.preventDefault();
             startZoom();
         }
@@ -1494,5 +2258,8 @@ function createMenuShotgun() {
 
 // Menu Shotgun beim Laden erstellen
 setTimeout(createMenuShotgun, 1000);
+
+// Zufällige Spielerdaten beim Laden setzen
+setRandomPlayerData();
 
 console.log('🎯 Hardcoded Shotgun bereit - Menu und Spiel Modelle werden geladen!'); 

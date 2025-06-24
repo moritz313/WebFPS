@@ -60,14 +60,56 @@ io.on('connection', (socket) => {
         z: Math.random() * 20 - 10,
         rotationY: 0,
         health: 100,
-        alive: true
+        alive: true,
+        username: 'Spieler', // Standard-Username
+        color: '#ff0000' // Standard-Farbe (rot)
     };
 
     // Aktuellen Spielerstatus und Map an neuen Spieler senden
     socket.emit('currentPlayers', players);
     console.log('Sende Map-Daten an neuen Spieler:', socket.id, 'Anzahl Hindernisse:', mapObstacles.length);
     socket.emit('mapData', mapObstacles);
-    socket.broadcast.emit('newPlayer', players[socket.id]);
+    
+    // Neuen Spieler NICHT sofort senden - warten auf setPlayerData
+    // Das newPlayer Event wird erst nach setPlayerData gesendet
+
+    // Spieler-Daten setzen (Username und Farbe)
+    let playerDataSent = false;
+    socket.on('setPlayerData', (data) => {
+        if (players[socket.id]) {
+            let changes = {};
+            
+            // Username aktualisieren
+            if (data.username && data.username.trim().length > 0) {
+                const cleanUsername = data.username.trim().substring(0, 15); // Max 15 Zeichen
+                players[socket.id].username = cleanUsername;
+                changes.username = cleanUsername;
+                console.log(`Spieler ${socket.id} hat Username gesetzt: ${cleanUsername}`);
+            }
+            
+            // Farbe aktualisieren
+            if (data.color && /^#[0-9A-F]{6}$/i.test(data.color)) {
+                players[socket.id].color = data.color;
+                changes.color = data.color;
+                console.log(`Spieler ${socket.id} hat Farbe gesetzt: ${data.color}`);
+            }
+            
+            // Alle Clients über Änderungen informieren
+            if (Object.keys(changes).length > 0) {
+                io.emit('playerDataChanged', {
+                    playerId: socket.id,
+                    ...changes
+                });
+            }
+            
+            // Beim ersten setPlayerData den Spieler an andere Clients senden
+            if (!playerDataSent) {
+                playerDataSent = true;
+                socket.broadcast.emit('newPlayer', players[socket.id]);
+                console.log('Neuer Spieler mit Daten gesendet:', players[socket.id]);
+            }
+        }
+    });
 
     // Spieler-Update
     socket.on('playerUpdate', (playerData) => {
@@ -174,9 +216,11 @@ io.on('connection', (socket) => {
             
             targetPlayer.health -= data.damage;
             
+            let isKill = false;
             if (targetPlayer.health <= 0) {
                 targetPlayer.alive = false;
                 targetPlayer.health = 0;
+                isKill = true;
                 io.emit('playerDied', data.targetId);
                 
                 // Respawn nach 5 Sekunden
@@ -190,6 +234,15 @@ io.on('connection', (socket) => {
                     }
                 }, 5000);
             }
+            
+            // Hitmarker an Schützen senden
+            socket.emit('hitConfirmed', {
+                isKill: isKill,
+                damage: data.damage,
+                targetId: data.targetId,
+                weaponType: data.weaponType || 'rifle',
+                isHeadshot: false // Für später implementierbar (Kopftreffer-Erkennung)
+            });
             
             io.emit('playerHealthUpdate', {
                 playerId: data.targetId,

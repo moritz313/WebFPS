@@ -41,6 +41,7 @@ body {
     text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
 }
 
+/* Basis Crosshair */
 #crosshair {
     position: absolute;
     top: 50%;
@@ -48,9 +49,302 @@ body {
     transform: translate(-50%, -50%);
     font-size: 24px;
     font-weight: bold;
-    color: #ff0000;
+    color: #ffffff;
     text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
     pointer-events: none;
+    transition: all 0.2s ease;
+    user-select: none;
+}
+
+/* Gewehr Crosshair - Standard Plus */
+#crosshair.rifle {
+    font-size: 24px;
+    color: #ffffff;
+}
+
+/* Shotgun Crosshair - Kreis */
+#crosshair.shotgun {
+    font-size: 0;
+    color: transparent;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
+}
+
+/* Sniper Crosshair - Punkt oder Fadenkreuz */
+#crosshair.sniper {
+    font-size: 0;
+    color: transparent;
+    width: 8px;
+    height: 8px;
+    position: relative;
+    background: transparent;
+    transition: all 0.2s ease;
+}
+
+/* Nicht gezoomt: Nur ein Punkt */
+#crosshair.sniper::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 4px;
+    height: 4px;
+    background-color: #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
+}
+
+/* Gezoomt: Großes Fadenkreuz */
+#crosshair.sniper.zoomed {
+    width: 120px;
+    height: 120px;
+}
+
+#crosshair.sniper.zoomed::before {
+    /* Horizontale Linie beim Zoom */
+    width: 120px;
+    height: 1px;
+    border-radius: 0;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+}
+
+#crosshair.sniper.zoomed::after {
+    /* Vertikale Linie beim Zoom */
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 1px;
+    height: 120px;
+    background-color: #ffffff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.6);
+    transform: translateX(-50%);
+}
+
+/* Cooldown/Delay Bar */
+#cooldown-bar {
+    position: absolute;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 200px;
+    height: 8px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+    overflow: hidden;
+    backdrop-filter: blur(5px);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    transition: all 0.3s ease;
+}
+
+#cooldown-bar::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, 
+        rgba(255,255,255,0.1) 0%, 
+        rgba(255,255,255,0.05) 50%, 
+        rgba(255,255,255,0.1) 100%);
+    border-radius: 8px;
+}
+
+#cooldown-fill {
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, 
+        #ff4444 0%, 
+        #ff6600 50%, 
+        #00ff00 100%);
+    border-radius: 8px;
+    transition: width 0.1s ease-out;
+    position: relative;
+    box-shadow: 0 0 10px rgba(255, 102, 0, 0.5);
+}
+
+#cooldown-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(180deg, 
+        rgba(255,255,255,0.3) 0%, 
+        transparent 50%, 
+        rgba(0,0,0,0.2) 100%);
+    border-radius: 8px;
+}
+
+/* Animation für vollständigen Cooldown */
+#cooldown-bar.complete #cooldown-fill {
+    background: linear-gradient(90deg, #00ff00, #00cc00);
+    box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+}
+
+/* Scoreboard */
+#scoreboard {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 400px;
+    max-height: 60vh;
+    background: rgba(0, 0, 0, 0.85);
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    overflow: hidden;
+    transition: all 0.3s ease;
+    z-index: 1500;
+}
+
+#scoreboard-header {
+    background: rgba(255, 255, 255, 0.1);
+    padding: 15px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    text-align: center;
+}
+
+#scoreboard-header h3 {
+    color: #ffffff;
+    font-size: 18px;
+    font-weight: bold;
+    margin: 0;
+    text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+    letter-spacing: 1px;
+}
+
+#scoreboard-content {
+    padding: 15px;
+    max-height: calc(60vh - 80px);
+    overflow-y: auto;
+}
+
+#players-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.player-score-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    transition: all 0.2s ease;
+}
+
+.player-score-item:hover {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.3);
+}
+
+.player-score-item.own-player {
+    background: rgba(0, 255, 0, 0.1);
+    border-color: rgba(0, 255, 0, 0.3);
+    box-shadow: 0 0 10px rgba(0, 255, 0, 0.2);
+}
+
+.player-info {
+    display: flex;
+    align-items: center;
+    flex: 1;
+}
+
+.player-color-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    margin-right: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+}
+
+.player-name {
+    color: #ffffff;
+    font-weight: bold;
+    font-size: 16px;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.player-stats {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+}
+
+.stat-item {
+    text-align: center;
+    min-width: 35px;
+}
+
+.stat-label {
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.7);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+}
+
+.stat-value {
+    font-size: 18px;
+    font-weight: bold;
+    color: #ffffff;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.8);
+}
+
+.stat-value.kills {
+    color: #00ff00;
+}
+
+.stat-value.deaths {
+    color: #ff4444;
+}
+
+.stat-value.kd {
+    color: #ffaa00;
+    font-size: 14px;
+}
+
+/* Scrollbar für Scoreboard */
+#scoreboard-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+#scoreboard-content::-webkit-scrollbar-track {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+
+#scoreboard-content::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 3px;
+}
+
+#scoreboard-content::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.5);
 }
 
 #health {
@@ -143,6 +437,81 @@ body {
     transform: scale(1.05);
 }
 
+#player-settings {
+    margin-bottom: 20px;
+    display: flex;
+    gap: 20px;
+    align-items: end;
+}
+
+#username-container {
+    flex: 2;
+}
+
+#color-container {
+    flex: 1;
+}
+
+#username-container label,
+#color-container label {
+    display: block;
+    color: #00ff00;
+    margin-bottom: 8px;
+    font-weight: bold;
+}
+
+#usernameInput {
+    width: 100%;
+    padding: 10px;
+    font-size: 16px;
+    border: 2px solid #00ff00;
+    border-radius: 5px;
+    background: rgba(0,0,0,0.8);
+    color: white;
+    text-align: center;
+}
+
+#usernameInput:focus {
+    outline: none;
+    border-color: #00cc00;
+    background: rgba(0,0,0,0.9);
+}
+
+#colorPicker {
+    width: 100%;
+    height: 50px;
+    border: 2px solid #00ff00;
+    border-radius: 5px;
+    background: rgba(0,0,0,0.8);
+    cursor: pointer;
+}
+
+#colorPicker:hover {
+    border-color: #00cc00;
+}
+
+#colorPicker::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+#colorPicker::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
+}
+
+/* Responsive Design für kleinere Bildschirme */
+@media (max-width: 600px) {
+    #player-settings {
+        flex-direction: column;
+        gap: 15px;
+    }
+    
+    #username-container,
+    #color-container {
+        flex: none;
+    }
+}
+
 #instructions {
     text-align: left;
 }
@@ -187,6 +556,92 @@ body {
 /* Mauszeiger ausblenden im Spiel */
 body.playing {
     cursor: none;
+}
+
+/* Hitmarker */
+#hitmarker {
+    width: 32px;
+    height: 32px;
+}
+
+#hitmarker-image {
+    filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.8));
+}
+
+/* Hitmarker Animation */
+@keyframes hitmarker-fade {
+    0% {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1.3);
+    }
+    100% {
+        opacity: 0;
+        transform: translate(-50%, -50%) scale(1);
+    }
+}
+
+.hitmarker-show {
+    display: block !important;
+    animation: hitmarker-fade 0.4s ease-out forwards;
+}
+
+/* Kill Hitmarker (rot für Kills) */
+.hitmarker-kill #hitmarker-image {
+    filter: sepia(1) saturate(5) hue-rotate(0deg) brightness(1.2) drop-shadow(0 0 8px rgba(255, 0, 0, 0.9));
+}
+
+/* Headshot Hitmarker (gelb für Kopftreffer) */
+.hitmarker-headshot #hitmarker-image {
+    filter: sepia(1) saturate(5) hue-rotate(45deg) brightness(1.5) drop-shadow(0 0 10px rgba(255, 255, 0, 1));
+    transform: scale(1.2);
+}
+
+/* Sniper Hitmarker (größer für Sniper) */
+.hitmarker-sniper #hitmarker-image {
+    filter: brightness(1.3) drop-shadow(0 0 6px rgba(255, 255, 255, 1));
+    transform: scale(1.1);
+}
+
+/* Fallback Hitmarker (wenn Bild nicht lädt) */
+.fallback-hitmarker {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+.fallback-hitmarker .hitmarker-line {
+    position: absolute;
+    background-color: white;
+    width: 8px;
+    height: 2px;
+}
+
+.fallback-hitmarker .hitmarker-top-left {
+    top: 6px;
+    left: 6px;
+    transform: rotate(-45deg);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+}
+
+.fallback-hitmarker .hitmarker-top-right {
+    top: 6px;
+    right: 6px;
+    transform: rotate(45deg);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+}
+
+.fallback-hitmarker .hitmarker-bottom-left {
+    bottom: 6px;
+    left: 6px;
+    transform: rotate(45deg);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
+}
+
+.fallback-hitmarker .hitmarker-bottom-right {
+    bottom: 6px;
+    right: 6px;
+    transform: rotate(-45deg);
+    box-shadow: 0 0 5px rgba(255, 255, 255, 0.8);
 }
 
 /* Loading Screen */
