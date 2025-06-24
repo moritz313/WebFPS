@@ -153,6 +153,9 @@ const deathScreen = document.getElementById('death-screen');
 const respawnTimer = document.getElementById('respawn-timer');
 const hitmarker = document.getElementById('hitmarker');
 const hitmarkerImage = document.getElementById('hitmarker-image');
+const killIcon = document.getElementById('kill-icon');
+const killIconImage = document.getElementById('kill-icon-image');
+const lowHpOverlay = document.getElementById('low-hp-overlay');
 const scoreboard = document.getElementById('scoreboard');
 
 // Scoreboard-Daten
@@ -1586,8 +1589,18 @@ function updateHealth(health) {
     healthValue.textContent = health;
     if (health <= 30) {
         healthBar.classList.add('low');
+        // Low-HP-Overlay aktivieren
+        if (lowHpOverlay) {
+            lowHpOverlay.style.display = 'block';
+            lowHpOverlay.classList.add('low-hp-active');
+        }
     } else {
         healthBar.classList.remove('low');
+        // Low-HP-Overlay deaktivieren
+        if (lowHpOverlay) {
+            lowHpOverlay.style.display = 'none';
+            lowHpOverlay.classList.remove('low-hp-active');
+        }
     }
 }
 
@@ -1619,6 +1632,8 @@ function showHitmarker(isKill = false, weaponType = 'rifle', isHeadshot = false)
     // Füge entsprechende Klassen hinzu
     if (isKill) {
         hitmarker.classList.add('hitmarker-kill');
+        // Zeige Kill-Icon bei Kills
+        showKillIcon();
     }
     if (isHeadshot) {
         hitmarker.classList.add('hitmarker-headshot');
@@ -1635,6 +1650,22 @@ function showHitmarker(isKill = false, weaponType = 'rifle', isHeadshot = false)
         hitmarker.classList.remove('hitmarker-show', 'hitmarker-kill', 'hitmarker-headshot', 'hitmarker-sniper');
         hitmarker.style.display = 'none';
     }, 400);
+}
+
+function showKillIcon() {
+    if (!killIcon) return;
+    
+    // Entferne vorherige Animation
+    killIcon.classList.remove('kill-icon-show');
+    
+    // Zeige Kill-Icon mit Animation
+    killIcon.classList.add('kill-icon-show');
+    
+    // Nach Animation wieder verstecken
+    setTimeout(() => {
+        killIcon.classList.remove('kill-icon-show');
+        killIcon.style.display = 'none';
+    }, 1200);
 }
 
 // Audio System für Custom Sounds
@@ -1762,12 +1793,16 @@ function createSyntheticFallback(soundName) {
 function playHitSound(isKill = false, isHeadshot = false) {
     if (!audioContext) return;
     
-    // Bestimme welcher Sound abgespielt werden soll
+    // Bestimme welcher Sound abgespielt werden soll - bei Kills IMMER Kill-Sound, egal welche Waffe
     let soundName = 'hit';
-    if (isHeadshot) {
-        soundName = 'headshot';
-    } else if (isKill) {
+    if (isKill) {
         soundName = 'kill';
+        console.log('🎯 Spiele Kill-Sound ab bei Kill!');
+    } else if (isHeadshot) {
+        soundName = 'headshot';
+        console.log('💥 Spiele Headshot-Sound ab bei Headshot!');
+    } else {
+        console.log('🎯 Spiele Hit-Sound ab bei normalen Hit!');
     }
     
     // Spiele den Sound ab
@@ -1844,13 +1879,15 @@ function playSyntheticSound(soundName) {
     // Sound-Parameter je nach Typ
     switch (soundName) {
         case 'kill':
-            oscillator.frequency.setValueAtTime(400, audioContext.currentTime);
-            oscillator.frequency.exponentialRampToValueAtTime(200, audioContext.currentTime + 0.15);
-            gainNode.gain.setValueAtTime(0.3 * AUDIO_VOLUME, audioContext.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
-            oscillator.type = 'triangle';
+            // Kill-Sound: Tieferer, längerer und dramatischerer Sound für alle Waffen-Kills
+            oscillator.frequency.setValueAtTime(500, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(150, audioContext.currentTime + 0.3);
+            gainNode.gain.setValueAtTime(0.4 * AUDIO_VOLUME, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+            oscillator.type = 'sawtooth';
             oscillator.start(audioContext.currentTime);
-            oscillator.stop(audioContext.currentTime + 0.15);
+            oscillator.stop(audioContext.currentTime + 0.3);
+            console.log('🔊 Synthetischer Kill-Sound abgespielt');
             break;
             
         case 'headshot':
@@ -1924,6 +1961,19 @@ hitmarkerImage.addEventListener('error', () => {
     `;
 });
 
+// Fallback für Kill-Icon
+if (killIconImage) {
+    killIconImage.addEventListener('error', () => {
+        console.log('Kill-Icon konnte nicht geladen werden, verwende Fallback');
+        killIconImage.style.display = 'none';
+        
+        // Erstelle Fallback-Kill-Icon
+        killIcon.innerHTML = `
+            <div class="fallback-kill-icon">💀</div>
+        `;
+    });
+}
+
 hitmarkerImage.addEventListener('load', () => {
     console.log('✅ Hitmarker-Bild erfolgreich geladen');
 });
@@ -1948,6 +1998,33 @@ window.listSounds = function() {
         console.log(`${loaded} ${soundName} (${type})`);
     });
     console.log('\n💡 Verwendung: testSound("hit"), testSound("kill"), testSound("headshot")');
+    console.log('💡 Kill-Test: testKillSound(), testAllHitSounds()');
+};
+
+// Debug-Funktion um Kill-Sound zu testen
+window.testKillSound = function() {
+    console.log('🎯 Teste Kill-Sound...');
+    playHitSound(true, false); // isKill = true, isHeadshot = false
+};
+
+// Debug-Funktion um alle Hit-Typen zu testen
+window.testAllHitSounds = function() {
+    console.log('🎯 Teste alle Hit-Sounds...');
+    
+    setTimeout(() => {
+        console.log('1. Normal Hit:');
+        playHitSound(false, false);
+    }, 0);
+    
+    setTimeout(() => {
+        console.log('2. Kill Hit:');
+        playHitSound(true, false);
+    }, 1000);
+    
+    setTimeout(() => {
+        console.log('3. Headshot Hit:');
+        playHitSound(false, true);
+    }, 2000);
 };
 
 // Debug-Funktionen für Scoreboard
@@ -1974,6 +2051,21 @@ window.addTestDeath = function() {
 window.showStats = function() {
     console.log('📊 Aktuelle Player Stats:', playerStats);
     console.log('📊 Scoreboard sichtbar:', isScoreboardVisible);
+};
+
+window.testKillIcon = function() {
+    console.log('💀 Teste Kill-Icon');
+    showKillIcon();
+};
+
+window.testLowHP = function() {
+    console.log('🩸 Teste Low-HP-Effekt');
+    updateHealth(25);
+};
+
+window.testNormalHP = function() {
+    console.log('💚 Teste Normal-HP');
+    updateHealth(100);
 };
 
 function animate() {
