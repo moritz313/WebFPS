@@ -76,56 +76,75 @@ let normalFOV = 75;
 let zoomedFOV = 25;
 let lastShotTime = 0;
 
-// Kollisionserkennung mit Hindernissen - nur horizontal (für Bewegung)
-function checkHorizontalCollisionWithObstacles(x, z, playerRadius = 0.5) {
+// Präzise 3D-Kollisionserkennung: What you see is what you get!
+function checkCollisionWithObstacles(newX, newY, newZ, playerRadius = 0.4) {
+    const playerHeight = 1.8;
+    const playerBottom = newY - playerHeight/2;
+    const playerTop = newY + playerHeight/2;
+    
     for (const obstacle of mapObstacles) {
-        // AABB Kollisionserkennung (Axis-Aligned Bounding Box)
-        const dx = Math.abs(x - obstacle.x);
-        const dz = Math.abs(z - obstacle.z);
+        // Exakte AABB-Kollision - keine Ausnahmen, keine Tricks
+        const obstacleLeft = obstacle.x - obstacle.width / 2;
+        const obstacleRight = obstacle.x + obstacle.width / 2;
+        const obstacleBack = obstacle.z - obstacle.depth / 2;
+        const obstacleForward = obstacle.z + obstacle.depth / 2;
+        const obstacleBottom = obstacle.y - obstacle.height / 2;
+        const obstacleTop = obstacle.y + obstacle.height / 2;
         
-        // Erweiterte Bounding Box um Player-Radius
-        const halfWidth = obstacle.width / 2 + playerRadius;
-        const halfDepth = obstacle.depth / 2 + playerRadius;
+        // Spieler-Bounding-Box mit Radius
+        const playerLeft = newX - playerRadius;
+        const playerRight = newX + playerRadius;
+        const playerBack = newZ - playerRadius;
+        const playerForward = newZ + playerRadius;
         
-        if (dx < halfWidth && dz < halfDepth) {
-            return true; // Kollision erkannt
+        // 3D AABB Überschneidungstest
+        const xOverlap = playerRight > obstacleLeft && playerLeft < obstacleRight;
+        const yOverlap = playerTop > obstacleBottom && playerBottom < obstacleTop;
+        const zOverlap = playerForward > obstacleBack && playerBack < obstacleForward;
+        
+        if (xOverlap && yOverlap && zOverlap) {
+            return obstacle; // Exakte Kollision gefunden
         }
     }
-    return false; // Keine Kollision
+    return null; // Keine Kollision
 }
 
-// Erweiterte Kollisionserkennung für Boden (Blöcke als Plattformen)
-function getGroundHeightAt(x, z, currentY, playerRadius = 0.5) {
+// Präzise Boden-Erkennung: Exakt auf Objekt-Oberkanten
+function getGroundHeightAt(x, z, currentY, playerRadius = 0.4) {
     let maxGroundHeight = GROUND_Y; // Standard-Bodenhöhe
     
     for (const obstacle of mapObstacles) {
-        // Prüfen ob Spieler über dem Block ist
-        const dx = Math.abs(x - obstacle.x);
-        const dz = Math.abs(z - obstacle.z);
+        // Exakte horizontale Überschneidung prüfen
+        const obstacleLeft = obstacle.x - obstacle.width / 2;
+        const obstacleRight = obstacle.x + obstacle.width / 2;
+        const obstacleBack = obstacle.z - obstacle.depth / 2;
+        const obstacleForward = obstacle.z + obstacle.depth / 2;
         
-        // Etwas kleinere Bounding Box für Boden-Kollision (damit man nicht an den Kanten hängen bleibt)
-        const halfWidth = obstacle.width / 2 - 0.1;
-        const halfDepth = obstacle.depth / 2 - 0.1;
+        // Spieler-Fußprint mit Radius
+        const playerLeft = x - playerRadius;
+        const playerRight = x + playerRadius;
+        const playerBack = z - playerRadius;
+        const playerForward = z + playerRadius;
         
-        if (dx < halfWidth && dz < halfDepth) {
-            // Spieler ist über dem Block - Block-Oberkante als Boden verwenden
-            const blockTop = obstacle.y + obstacle.height / 2;
+        // Horizontale Überschneidung prüfen
+        const xOverlap = playerRight > obstacleLeft && playerLeft < obstacleRight;
+        const zOverlap = playerForward > obstacleBack && playerBack < obstacleForward;
+        
+        if (xOverlap && zOverlap) {
+            // Spieler steht auf dem Objekt - Oberkante als Boden verwenden
+            const obstacleTop = obstacle.y + obstacle.height / 2;
             
-            // Nur als Boden verwenden wenn Spieler nah genug ist (nicht weit drüber)
-            if (blockTop > maxGroundHeight && currentY <= blockTop + 0.5) {
-                maxGroundHeight = blockTop;
-            }
+            // Nur verwenden wenn es höher ist als aktueller Boden UND Spieler darüber ist
+            if (obstacleTop > maxGroundHeight && currentY >= obstacleTop - 0.5) {
+                maxGroundHeight = obstacleTop;
         }
+    }
     }
     
     return maxGroundHeight;
 }
 
-// Prüfen ob Spieler in einen Block fallen würde (für vertikal nach unten)
-function checkVerticalCollisionFromAbove(x, y, z, playerRadius = 0.5) {
-    // Diese Funktion ist jetzt deaktiviert - nur noch einfache Boden-Kollision
-    return { collision: false };
-}
+// Alte Funktion entfernt - jetzt verwenden wir checkCollisionWithObstacles für alle 3D-Kollisionen
 
 // Zufällige Namen für Spieler
 const RANDOM_NAMES = [
@@ -147,6 +166,7 @@ const menu = document.getElementById('menu');
 const startBtn = document.getElementById('startBtn');
 const usernameInput = document.getElementById('usernameInput');
 const colorPicker = document.getElementById('colorPicker');
+const headTexturePicker = document.getElementById('headTexturePicker');
 const healthValue = document.getElementById('healthValue');
 const healthBar = document.getElementById('health');
 const deathScreen = document.getElementById('death-screen');
@@ -157,10 +177,182 @@ const killIcon = document.getElementById('kill-icon');
 const killIconImage = document.getElementById('kill-icon-image');
 const lowHpOverlay = document.getElementById('low-hp-overlay');
 const scoreboard = document.getElementById('scoreboard');
+const killfeed = document.getElementById('killfeed');
 
 // Scoreboard-Daten
 let playerStats = {}; // { playerId: { kills: 0, deaths: 0, username: '', color: '' } }
 let isScoreboardVisible = false;
+
+// Killfeed-System
+const KILLFEED_MAX_ENTRIES = 8;
+const KILLFEED_ENTRY_LIFETIME = 7000; // 7 Sekunden
+
+function addKillToFeed(killerData, victimData, weaponType, isHeadshot = false) {
+    if (!killfeed) return;
+    
+    console.log('🎯 Füge Kill zum Feed hinzu:', killerData, victimData, weaponType);
+    
+    // Kill-Entry erstellen
+    const killEntry = document.createElement('div');
+    killEntry.className = 'kill-entry';
+    
+    // Spezielle Klassen für verschiedene Kill-Typen
+    if (isHeadshot) {
+        killEntry.classList.add('headshot');
+    }
+    
+    // Waffen-Icons (PNG statt Emojis)
+    const weaponIcons = {
+        'rifle': '<img src="/textures/icons/rifle.png" alt="Rifle">',
+        'shotgun': '<img src="/textures/icons/shotgun.png" alt="Shotgun">',
+        'sniper': '<img src="/textures/icons/sniper.png" alt="Sniper">',
+        'fall': '💀',
+        'suicide': '☠️'
+    };
+    
+    const weaponIcon = weaponIcons[weaponType] || weaponIcons['rifle'];
+    
+    // Kill-Entry Inhalt
+    if (killerData.id === victimData.id) {
+        // Selbstmord
+        killEntry.classList.add('suicide');
+        killEntry.innerHTML = `
+            <span class="victim-name">${victimData.username}</span>
+            <span class="weapon-icon">☠️</span>
+            <span class="killer-name">Selbstmord</span>
+        `;
+    } else {
+        // Normaler Kill
+        killEntry.innerHTML = `
+            <span class="killer-name">${killerData.username}</span>
+            <span class="weapon-icon">${weaponIcon}</span>
+            <span class="victim-name">${victimData.username}</span>
+        `;
+    }
+    
+    // Entry zum Killfeed hinzufügen (oben)
+    killfeed.insertBefore(killEntry, killfeed.firstChild);
+    
+    // Alte Entries entfernen wenn zu viele
+    while (killfeed.children.length > KILLFEED_MAX_ENTRIES) {
+        const oldEntry = killfeed.lastChild;
+        if (oldEntry) {
+            killfeed.removeChild(oldEntry);
+        }
+    }
+    
+    // Entry nach bestimmter Zeit ausblenden
+    setTimeout(() => {
+        if (killEntry && killEntry.parentNode) {
+            killEntry.classList.add('fade-out');
+            setTimeout(() => {
+                if (killEntry && killEntry.parentNode) {
+                    killfeed.removeChild(killEntry);
+                }
+            }, 300); // Animation-Dauer
+        }
+    }, KILLFEED_ENTRY_LIFETIME);
+}
+
+function getPlayerDataById(playerId) {
+    // Spielerdaten aus verschiedenen Quellen abrufen
+    if (players[playerId] && players[playerId].userData) {
+        return {
+            id: playerId,
+            username: players[playerId].userData.username || playerStats[playerId]?.username || 'Unbekannt',
+            color: playerStats[playerId]?.color || '#ffffff'
+        };
+    }
+    
+    if (playerStats[playerId]) {
+        return {
+            id: playerId,
+            username: playerStats[playerId].username || 'Unbekannt',
+            color: playerStats[playerId].color || '#ffffff'
+        };
+    }
+    
+    // Fallback für unbekannte Spieler
+    return {
+        id: playerId,
+        username: 'Unbekannt',
+        color: '#ffffff'
+    };
+}
+
+// Verfügbare Kopf-Texturen
+let availableHeadTextures = [];
+let selectedHeadTexture = 'head1.png'; // Standard
+
+// Kopf-Texturen dynamisch laden
+async function loadAvailableHeadTextures() {
+    try {
+        // Versuche die textures/heads/ API-Endpoint aufzurufen (falls Server das unterstützt)
+        const response = await fetch('/api/head-textures');
+        if (response.ok) {
+            const textures = await response.json();
+            availableHeadTextures = textures;
+        } else {
+            throw new Error('API nicht verfügbar');
+        }
+    } catch (error) {
+        console.log('API nicht verfügbar, verwende Standard-Texturen:', error.message);
+        // Fallback: Standard-Liste von bekannten Texturen
+        availableHeadTextures = ['head1.png'];
+        
+        // Versuche weitere Standard-Texturen zu testen
+        const possibleTextures = [
+            'head1.png', 'head2.png', 'head3.png', 'head4.png', 'head5.png',
+            'steve.png', 'alex.png', 'creeper.png', 'zombie.png', 'skeleton.png'
+        ];
+        
+        for (const texture of possibleTextures) {
+            try {
+                const testResponse = await fetch(`/textures/heads/${texture}`, { method: 'HEAD' });
+                if (testResponse.ok && !availableHeadTextures.includes(texture)) {
+                    availableHeadTextures.push(texture);
+                }
+            } catch (e) {
+                // Textur existiert nicht, ignorieren
+            }
+        }
+    }
+    
+    console.log('Verfügbare Kopf-Texturen:', availableHeadTextures);
+    populateHeadTextureDropdown();
+}
+
+// Dropdown mit verfügbaren Texturen füllen
+function populateHeadTextureDropdown() {
+    if (!headTexturePicker) return;
+    
+    // Dropdown leeren
+    headTexturePicker.innerHTML = '';
+    
+    // Optionen hinzufügen
+    availableHeadTextures.forEach(texture => {
+        const option = document.createElement('option');
+        option.value = texture;
+        option.textContent = texture.replace('.png', '').replace(/([A-Z])/g, ' $1').trim();
+        if (texture === selectedHeadTexture) {
+            option.selected = true;
+        }
+        headTexturePicker.appendChild(option);
+    });
+    
+    // Event Listener für Änderungen
+    headTexturePicker.addEventListener('change', (event) => {
+        selectedHeadTexture = event.target.value;
+        console.log('Kopf-Textur geändert zu:', selectedHeadTexture);
+        
+        // Wenn im Spiel, sofort an Server senden
+        if (gameStarted && socket) {
+            socket.emit('setPlayerData', { 
+                headTexture: selectedHeadTexture 
+            });
+        }
+    });
+}
 
 // Zufälligen Namen und Farbe setzen
 function setRandomPlayerData() {
@@ -174,6 +366,15 @@ function setRandomPlayerData() {
     const randomColor = RANDOM_COLORS[Math.floor(Math.random() * RANDOM_COLORS.length)];
     if (colorPicker) {
         colorPicker.value = randomColor;
+    }
+    
+    // Zufällige Kopf-Textur
+    if (availableHeadTextures.length > 0) {
+        const randomTexture = availableHeadTextures[Math.floor(Math.random() * availableHeadTextures.length)];
+        selectedHeadTexture = randomTexture;
+        if (headTexturePicker) {
+            headTexturePicker.value = randomTexture;
+        }
     }
 }
 
@@ -283,9 +484,33 @@ socket.on('playerDataChanged', (data) => {
         
         // Farbe aktualisieren wenn vorhanden
         if (data.color) {
-            const playerMesh = playerGroup.children.find(child => child.geometry && child.geometry.type === 'BoxGeometry');
+            const playerMesh = playerGroup.children.find(child => 
+                child.geometry && child.geometry.type === 'BoxGeometry' && 
+                child.position.y === 0 // Körper, nicht Kopf
+            );
             if (playerMesh && playerMesh.material) {
                 playerMesh.material.color.setHex(new THREE.Color(data.color).getHex());
+            }
+        }
+        
+        // Kopf-Textur aktualisieren wenn vorhanden
+        if (data.headTexture) {
+            const headMesh = playerGroup.children.find(child => 
+                child.geometry && child.geometry.type === 'BoxGeometry' && 
+                child.position.y === 1.2 // Kopf-Position
+            );
+            if (headMesh && headMesh.material && Array.isArray(headMesh.material)) {
+                // Neue Textur laden
+                const textureLoader = new THREE.TextureLoader();
+                const newHeadTexture = textureLoader.load(`/textures/heads/${data.headTexture}`);
+                newHeadTexture.magFilter = THREE.NearestFilter;
+                newHeadTexture.minFilter = THREE.NearestFilter;
+                
+                // Nur das Vorderseiten-Material (Index 5) mit neuer Textur ersetzen
+                if (headMesh.material[5]) {
+                    headMesh.material[5].map = newHeadTexture;
+                    headMesh.material[5].needsUpdate = true;
+                }
             }
         }
     }
@@ -309,6 +534,11 @@ socket.on('bulletFired', (bulletData) => {
     // Alle Bullets visualisieren, auch eigene (für andere Spieler sichtbar)
     if (gameStarted && scene) {
         createBulletVisual(bulletData);
+        
+        // 3D-Audio für Gegner-Schüsse abspielen (nicht eigene)
+        if (bulletData.playerId !== socket.id) {
+            playEnemyWeaponSound(bulletData);
+        }
     }
 });
 
@@ -346,6 +576,26 @@ socket.on('playerDied', (playerId) => {
     }
 });
 
+socket.on('playerKilled', (data) => {
+    console.log('🔥 Globaler Kill:', data);
+    
+    // Kill zum Killfeed hinzufügen (für alle Spieler sichtbar)
+    const killerData = {
+        id: data.killerId,
+        username: data.killerUsername || 'Unbekannt'
+    };
+    
+    const victimData = {
+        id: data.victimId,
+        username: data.victimUsername || 'Unbekannt'
+    };
+    
+    // Nur hinzufügen wenn es nicht der eigene Kill war (der wurde schon in hitConfirmed hinzugefügt)
+    if (data.killerId !== socket.id) {
+        addKillToFeed(killerData, victimData, data.weaponType, data.isHeadshot);
+    }
+});
+
 socket.on('playerRespawned', (playerData) => {
     if (playerData.id === socket.id) {
         hideDeathScreen();
@@ -365,6 +615,12 @@ socket.on('hitConfirmed', (data) => {
     // Kill-Statistik aktualisieren
     if (data.isKill) {
         console.log('🎯 KILL! Target:', data.targetId);
+        
+        // Kill zum Killfeed hinzufügen
+        const killerData = getPlayerDataById(socket.id);
+        const victimData = getPlayerDataById(data.targetId);
+        addKillToFeed(killerData, victimData, data.weaponType, data.isHeadshot);
+        
         // Eigene Kills erhöhen
         if (playerStats[socket.id]) {
             playerStats[socket.id].kills++;
@@ -383,9 +639,15 @@ socket.on('hitConfirmed', (data) => {
     }
 });
 
-socket.on('mapData', (obstacles) => {
-    console.log('🗺️ Map-Daten erhalten:', obstacles.length, 'Hindernisse');
-    console.log('Erste Hindernisse:', obstacles.slice(0, 3));
+socket.on('mapData', (mapData) => {
+    console.log('🗺️ Map-Daten erhalten:', mapData);
+    
+    // Extrahiere obstacles aus mapData
+    const obstacles = mapData.obstacles || mapData;
+    console.log('📊 Verarbeitete Hindernisse:', obstacles.length, 'Strukturen');
+    console.log('🏘️ Map-Konfiguration:', mapData.config);
+    console.log('📐 Map-Grenzen:', mapData.bounds);
+    
     mapObstacles = obstacles;
     
     // Wenn Spiel bereits gestartet, Hindernisse sofort laden
@@ -457,11 +719,12 @@ function startGame() {
     // Pointer Lock für FPS-Steuerung
     document.body.requestPointerLock();
     
-    // Username und Farbe an Server senden
+    // Username, Farbe und Kopf-Textur an Server senden
     const playerColor = colorPicker.value;
     socket.emit('setPlayerData', { 
         username: username,
-        color: playerColor 
+        color: playerColor,
+        headTexture: selectedHeadTexture
     });
     
     // Eigene Daten zum Scoreboard hinzufügen
@@ -577,38 +840,88 @@ function createFallbackSkybox() {
 }
 
 function createArena() {
-    // Boden mit Textur
-    console.log('🏗️ Erstelle Arena mit Boden-Textur...');
+    // Erweiterte Arena mit mehrschichtigem Boden
+    console.log('🏗️ Erstelle erweiterte Arena mit professionellem Boden...');
     
-    const floorGeometry = new THREE.PlaneGeometry(100, 100);
+    // 4x größere Low-Poly-Dorf Bodenplatte (160x120 statt 40x30)
+    const floorGeometry = new THREE.PlaneGeometry(160, 120);
     
-    // Texture Loader für Boden-Textur
+    // Texture Loader für verschiedene Boden-Texturen
     const textureLoader = new THREE.TextureLoader();
     
     textureLoader.load(
         'https://i.imgur.com/5dx4Y0V.png',
         function(texture) {
-            // Texture erfolgreich geladen
-            console.log('✅ Boden-Textur geladen');
+            console.log('✅ Hauptboden-Textur geladen');
             
-            // Textur-Einstellungen für Wiederholung
+            // Hauptboden-Einstellungen - 4x mehr Wiederholungen für größere Fläche
             texture.wrapS = THREE.RepeatWrapping;
             texture.wrapT = THREE.RepeatWrapping;
-            texture.repeat.set(10, 10); // 10x10 Wiederholungen für große Fläche
+            texture.repeat.set(16, 12); // 4x mehr Textur-Wiederholung für 160x120 Bodenplatte
             
-            // Material mit Textur erstellen
             const floorMaterial = new THREE.MeshLambertMaterial({ 
                 map: texture
             });
             
-            // Boden erstellen und zur Szene hinzufügen
     const floor = new THREE.Mesh(floorGeometry, floorMaterial);
     floor.rotation.x = -Math.PI / 2;
     floor.receiveShadow = true;
-            floor.name = 'textured-floor';
+            floor.name = 'main-arena-floor';
     scene.add(floor);
+    
+            // Zentrale Dorf-Markierung (größer für größere Arena)
+            const centerGeometry = new THREE.RingGeometry(8, 12, 16); // 4x größer
+            const centerMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x444444,
+                transparent: true,
+                opacity: 0.7
+            });
+            const centerRing = new THREE.Mesh(centerGeometry, centerMaterial);
+            centerRing.rotation.x = -Math.PI / 2;
+            centerRing.position.y = 0.01; // Leicht über dem Hauptboden
+            centerRing.name = 'center-arena-ring';
+            scene.add(centerRing);
             
-            console.log('🏗️ Texturierter Boden zur Szene hinzugefügt');
+            // Richtungsmarkierungen für Dorf (4x größer)
+            const markerGeometry = new THREE.PlaneGeometry(8, 4); // 4x größer
+            const markerMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x666666,
+                transparent: true,
+                opacity: 0.6
+            });
+            
+            // Nord-Markierung (4x weiter entfernt)
+            const northMarker = new THREE.Mesh(markerGeometry, markerMaterial);
+            northMarker.rotation.x = -Math.PI / 2;
+            northMarker.position.set(0, 0.02, -56); // 4x weiter: -14 * 4 = -56
+            northMarker.name = 'north-marker';
+            scene.add(northMarker);
+            
+            // Süd-Markierung (4x weiter entfernt)
+            const southMarker = new THREE.Mesh(markerGeometry, markerMaterial);
+            southMarker.rotation.x = -Math.PI / 2;
+            southMarker.rotation.z = Math.PI;
+            southMarker.position.set(0, 0.02, 56); // 4x weiter: 14 * 4 = 56
+            southMarker.name = 'south-marker';
+            scene.add(southMarker);
+            
+            // Ost-Markierung (4x weiter entfernt)
+            const eastMarker = new THREE.Mesh(markerGeometry, markerMaterial);
+            eastMarker.rotation.x = -Math.PI / 2;
+            eastMarker.rotation.z = -Math.PI / 2;
+            eastMarker.position.set(76, 0.02, 0); // 4x weiter: 19 * 4 = 76
+            eastMarker.name = 'east-marker';
+            scene.add(eastMarker);
+            
+            // West-Markierung (4x weiter entfernt)
+            const westMarker = new THREE.Mesh(markerGeometry, markerMaterial);
+            westMarker.rotation.x = -Math.PI / 2;
+            westMarker.rotation.z = Math.PI / 2;
+            westMarker.position.set(-76, 0.02, 0); // 4x weiter: -19 * 4 = -76
+            westMarker.name = 'west-marker';
+            scene.add(westMarker);
+            
+            console.log('🏗️ 4x größerer texturierter Boden zur Szene hinzugefügt');
         },
         function(progress) {
             // Loading Progress
@@ -626,140 +939,12 @@ function createArena() {
             floor.name = 'fallback-floor';
             scene.add(floor);
             
-            console.log('🏗️ Fallback-Boden zur Szene hinzugefügt');
+            console.log('🏗️ 4x größerer Fallback-Boden zur Szene hinzugefügt');
         }
     );
     
-    // Wände
-    const wallHeight = 10;
-    const wallThickness = 1;
-    
-    // Wand-Textur laden
-    console.log('🧱 Lade Wand-Textur...');
-    const wallTextureLoader = new THREE.TextureLoader();
-    
-    wallTextureLoader.load(
-        'https://i.imgur.com/VMcr38J.png',
-        function(wallTexture) {
-            // Texture erfolgreich geladen
-            console.log('✅ Wand-Textur geladen');
-            
-            // Textur-Einstellungen für Wiederholung
-            wallTexture.wrapS = THREE.RepeatWrapping;
-            wallTexture.wrapT = THREE.RepeatWrapping;
-            
-            // Wand Material mit Textur
-            const wallMaterial = new THREE.MeshLambertMaterial({ 
-                map: wallTexture
-            });
-    
-    // Nord-Wand
-            wallTexture.repeat.set(20, 2); // Angepasst für Wand-Dimensionen
-    const northWall = new THREE.Mesh(
-        new THREE.BoxGeometry(100, wallHeight, wallThickness),
-        wallMaterial
-    );
-    northWall.position.set(0, wallHeight/2, -50);
-    northWall.castShadow = true;
-            northWall.name = 'north-wall';
-    scene.add(northWall);
-            
-            // Süd-Wand
-            const southWallTexture = wallTexture.clone();
-            southWallTexture.repeat.set(20, 2);
-            const southWallMaterial = new THREE.MeshLambertMaterial({ map: southWallTexture });
-            const southWall = new THREE.Mesh(
-                new THREE.BoxGeometry(100, wallHeight, wallThickness),
-                southWallMaterial
-            );
-            southWall.position.set(0, wallHeight/2, 50);
-            southWall.castShadow = true;
-            southWall.name = 'south-wall';
-            scene.add(southWall);
-            
-            // West-Wand
-            const westWallTexture = wallTexture.clone();
-            westWallTexture.repeat.set(20, 2);
-            const westWallMaterial = new THREE.MeshLambertMaterial({ map: westWallTexture });
-            const westWall = new THREE.Mesh(
-                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-                westWallMaterial
-            );
-            westWall.position.set(-50, wallHeight/2, 0);
-            westWall.castShadow = true;
-            westWall.name = 'west-wall';
-            scene.add(westWall);
-            
-            // Ost-Wand
-            const eastWallTexture = wallTexture.clone();
-            eastWallTexture.repeat.set(20, 2);
-            const eastWallMaterial = new THREE.MeshLambertMaterial({ map: eastWallTexture });
-            const eastWall = new THREE.Mesh(
-                new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-                eastWallMaterial
-            );
-            eastWall.position.set(50, wallHeight/2, 0);
-            eastWall.castShadow = true;
-            eastWall.name = 'east-wall';
-            scene.add(eastWall);
-            
-            console.log('🧱 Alle texturierten Wände zur Szene hinzugefügt');
-        },
-        function(progress) {
-            // Loading Progress
-            console.log('📥 Wand-Textur Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
-        },
-        function(error) {
-            // Loading Error - Fallback zu einfarbigen Wänden
-            console.error('❌ Fehler beim Laden der Wand-Textur:', error);
-            console.log('🔄 Verwende Fallback-Wände...');
-            
-            // Fallback: Einfarbige Wände
-            const wallMaterial = new THREE.MeshLambertMaterial({ color: 0xaaaaaa });
-            
-            // Nord-Wand
-            const northWall = new THREE.Mesh(
-                new THREE.BoxGeometry(100, wallHeight, wallThickness),
-                wallMaterial
-            );
-            northWall.position.set(0, wallHeight/2, -50);
-            northWall.castShadow = true;
-            northWall.name = 'fallback-north-wall';
-            scene.add(northWall);
-    
-    // Süd-Wand
-    const southWall = new THREE.Mesh(
-        new THREE.BoxGeometry(100, wallHeight, wallThickness),
-        wallMaterial
-    );
-    southWall.position.set(0, wallHeight/2, 50);
-    southWall.castShadow = true;
-            southWall.name = 'fallback-south-wall';
-    scene.add(southWall);
-    
-    // West-Wand
-    const westWall = new THREE.Mesh(
-        new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-        wallMaterial
-    );
-    westWall.position.set(-50, wallHeight/2, 0);
-    westWall.castShadow = true;
-            westWall.name = 'fallback-west-wall';
-    scene.add(westWall);
-    
-    // Ost-Wand
-    const eastWall = new THREE.Mesh(
-        new THREE.BoxGeometry(wallThickness, wallHeight, 100),
-        wallMaterial
-    );
-    eastWall.position.set(50, wallHeight/2, 0);
-    eastWall.castShadow = true;
-            eastWall.name = 'fallback-east-wall';
-    scene.add(eastWall);
-            
-            console.log('🧱 Fallback-Wände zur Szene hinzugefügt');
-        }
-    );
+        // Arena-Wände werden jetzt durch die Map-Boundaries erstellt
+    console.log('🧱 Arena-Wände werden über Map-Boundaries generiert...');
     
     // Hindernisse werden jetzt server-seitig geladen
     // createObstacles() wird nach Erhalt der Map-Daten aufgerufen
@@ -773,10 +958,10 @@ function setupCamera() {
     let spawnZ = 0;
     let attempts = 0;
     
-    // Versuche eine freie Position zu finden
-    while (checkHorizontalCollisionWithObstacles(spawnX, spawnZ) && attempts < 50) {
-        spawnX = (Math.random() - 0.5) * 40; // Kleinerer Spawn-Bereich
-        spawnZ = (Math.random() - 0.5) * 40;
+    // Versuche eine freie Position zu finden (4x größere Arena)
+    while (checkCollisionWithObstacles(spawnX, PLAYER_HEIGHT, spawnZ) && attempts < 50) {
+        spawnX = (Math.random() - 0.5) * 120; // Zentral in der größeren Arena spawnen (kleiner als 160x120 Bodenplatte)
+        spawnZ = (Math.random() - 0.5) * 80;
         attempts++;
     }
     
@@ -886,9 +1071,9 @@ function showWeaponModel(weaponType) {
 }
 
 function createObstacles() {
-    console.log('🏗️ Erstelle Hindernisse basierend auf Server-Daten...');
+    console.log('🏗️ Erstelle erweiterte Arena basierend auf Server-Daten...');
     console.log('Szene vorhanden:', !!scene);
-    console.log('Map-Daten:', mapObstacles);
+    console.log('Map-Daten:', mapObstacles.length, 'Strukturen');
     
     if (!mapObstacles || mapObstacles.length === 0) {
         console.log('❌ Keine Map-Daten verfügbar');
@@ -900,40 +1085,99 @@ function createObstacles() {
         return;
     }
     
-    // Box-Textur laden
-    console.log('📦 Lade Box-Textur...');
-    const boxTextureLoader = new THREE.TextureLoader();
+    // Verschiedene Materialien für verschiedene Strukturtypen
+    const materials = {
+        stone: new THREE.MeshLambertMaterial({ color: 0x8B7355 }),        // Braun-grau für Hauptstrukturen
+        metal: new THREE.MeshLambertMaterial({ color: 0x708090 }),        // Metallgrau für Brücken
+        concrete: new THREE.MeshLambertMaterial({ color: 0xBDC3C7 }),     // Hellgrau für Mauern
+        wood: new THREE.MeshLambertMaterial({ color: 0x8B4513 }),         // Braun für Rampen
+        tower: new THREE.MeshLambertMaterial({ color: 0x4A4A4A }),        // Dunkelgrau für Türme
+        cover: new THREE.MeshLambertMaterial({ color: 0x654321 }),        // Dunkelbraun für Deckungen
+        platform: new THREE.MeshLambertMaterial({ color: 0x2F4F4F })     // Dunkelgrün für Plattformen
+    };
     
-    boxTextureLoader.load(
+    // Texturen laden für bessere Optik
+    console.log('📦 Lade Arena-Texturen...');
+    const textureLoader = new THREE.TextureLoader();
+    
+    // Funktion zur Bestimmung des Materials basierend auf Low-Poly-Dorf-Strukturen
+    function getMaterialForObstacle(obstacle, index) {
+        // Verwende die neue color-Property vom Server falls vorhanden
+        if (obstacle.color !== undefined) {
+            const material = new THREE.MeshLambertMaterial({ color: obstacle.color });
+            return material;
+        }
+        
+        // Fallback basierend auf type-Property vom Server
+        if (obstacle.type) {
+            switch (obstacle.type) {
+                case 'house_body':
+                case 'farmhouse':
+                    return materials.wood;
+                case 'house_roof':
+                case 'temple_roof':
+                case 'barn':
+                    return new THREE.MeshLambertMaterial({ color: 0xB22222 }); // Rot
+                case 'tower_body':
+                case 'watchtower_body':
+                case 'castle_tower':
+                    return materials.stone;
+                case 'tower_battlement':
+                case 'watchtower_base':
+                    return materials.metal;
+                case 'tower_balcony':
+                    return materials.concrete;
+                case 'castle_main':
+                    return new THREE.MeshLambertMaterial({ color: 0x778899 }); // Steinfarbe
+                case 'temple_base':
+                case 'temple_pillar':
+                    return new THREE.MeshLambertMaterial({ color: 0xD3D3D3 }); // Hellgrau
+                case 'barn_storage':
+                    return materials.wood;
+                case 'hill':
+                    return new THREE.MeshLambertMaterial({ color: 0x228B22 }); // Grün
+                case 'tree_trunk':
+                    return materials.wood;
+                case 'tree_crown':
+                    return new THREE.MeshLambertMaterial({ color: 0x228B22 }); // Waldgrün
+                case 'well':
+                case 'fireplace':
+                    return materials.stone;
+                case 'boundary':
+                    return materials.wood;
+                default:
+                    return materials.stone;
+            }
+        }
+        
+        // Standard Material für unbekannte Strukturen
+        return materials.stone;
+    }
+    
+    textureLoader.load(
         'https://i.imgur.com/DiMAnF6.png',
-        function(boxTexture) {
-            // Texture erfolgreich geladen
-            console.log('✅ Box-Textur geladen');
-            
-            // Textur-Einstellungen für Wiederholung
-            boxTexture.wrapS = THREE.RepeatWrapping;
-            boxTexture.wrapT = THREE.RepeatWrapping;
-            
-            // Hindernisse mit Textur erstellen
+        function(baseTexture) {
+            console.log('✅ Basis-Textur geladen, erstelle Arena...');
+    
     mapObstacles.forEach((obstacle, index) => {
-                console.log(`Erstelle texturiertes Hindernis ${index + 1}:`, obstacle);
+                // Material basierend auf Struktur-Typ wählen
+                const material = getMaterialForObstacle(obstacle, index);
                 
-                // Individuelle Textur für jede Box
-                const obstacleTexture = boxTexture.clone();
-                
-                // Textur-Wiederholung basierend auf Box-Größe anpassen
-                const scaleX = obstacle.width / 2;
-                const scaleY = obstacle.height / 2;
-                obstacleTexture.repeat.set(scaleX, scaleY);
-                
-                // Material mit Textur
-                const boxMaterial = new THREE.MeshLambertMaterial({ 
-                    map: obstacleTexture
-                });
+                // Spezielle Texturen für bestimmte Strukturen
+                if (material === materials.metal || material === materials.concrete) {
+                    // Klone die Basis-Textur für Metall/Beton
+                    const clonedTexture = baseTexture.clone();
+                    clonedTexture.wrapS = THREE.RepeatWrapping;
+                    clonedTexture.wrapT = THREE.RepeatWrapping;
+                    clonedTexture.repeat.set(obstacle.width / 2, obstacle.height / 2);
+                    
+                    material.map = clonedTexture;
+                    material.needsUpdate = true;
+                }
         
         const box = new THREE.Mesh(
             new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
-            boxMaterial
+                    material
         );
         
         box.position.set(obstacle.x, obstacle.y, obstacle.z);
@@ -941,32 +1185,54 @@ function createObstacles() {
         box.receiveShadow = true;
         box.userData.isObstacle = true;
         box.userData.obstacleData = obstacle;
-                box.name = `textured-obstacle-${index + 1}`;
         
+                // Namen für Low-Poly-Dorf-Strukturen
+                const structureName = obstacle.type || 'structure';
+                box.name = `${structureName}-${index + 1}`;
         scene.add(box);
-                console.log(`✅ Texturiertes Hindernis ${index + 1} zur Szene hinzugefügt bei (${obstacle.x}, ${obstacle.y}, ${obstacle.z})`);
-    });
+                
+                // Spezielle Effekte für Low-Poly-Dorf-Strukturen
+                if (structureName === 'tower_body' || structureName === 'watchtower_body') {
+                    // Leuchteffekt für Turm-Spitzen
+                    const light = new THREE.PointLight(0xffffcc, 0.3, 12);
+                    light.position.copy(box.position);
+                    light.position.y += obstacle.height / 2 + 1;
+                    scene.add(light);
+                } else if (structureName === 'fireplace') {
+                    // Warmes Feuer-Licht für Lagerfeuer
+                    const fireLight = new THREE.PointLight(0xff6600, 0.4, 6);
+                    fireLight.position.copy(box.position);
+                    fireLight.position.y += obstacle.height + 0.5;
+                    scene.add(fireLight);
+                }
+            });
     
-            console.log(`🎉 ${mapObstacles.length} texturierte Hindernisse erfolgreich erstellt. Szenen-Kinder:`, scene.children.length);
+            console.log(`🏘️ Low-Poly-Dorf mit ${mapObstacles.length} Strukturen erfolgreich erstellt!`);
+            console.log('🏘️ Dorf-Strukturen:');
+            console.log('  🏠 Einfaches Haus mit Dach (zentral)');
+            console.log('  🏰 Turm mit Zinnen und Beleuchtung');
+            console.log('  🏰 Kleine Burg mit vier Ecktürmen');
+            console.log('  🚜 Bauernhütte mit Stall');
+            console.log('  ⛩️ Tempel mit weißen Säulen');
+            console.log('  🚪 Holzlager mit Scheune');
+            console.log('  🗼 Wachturm auf grünem Hügel');
+            console.log('  🌳 Waldstück mit 10 Bäumen');
+            console.log('  💧 Brunnen und Lagerfeuer mit warmem Licht');
         },
         function(progress) {
-            // Loading Progress
-            console.log('📥 Box-Textur Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
+            console.log('📥 Arena-Textur Loading Progress:', (progress.loaded / progress.total * 100).toFixed(1) + '%');
         },
         function(error) {
-            // Loading Error - Fallback zu einfarbigen Boxen
-            console.error('❌ Fehler beim Laden der Box-Textur:', error);
-            console.log('🔄 Verwende Fallback-Boxen...');
+            console.error('❌ Fehler beim Laden der Arena-Textur:', error);
+            console.log('🔄 Verwende Fallback-Materialien...');
             
-            // Fallback: Einfarbige Boxen
-            const boxMaterial = new THREE.MeshLambertMaterial({ color: 0xCD853F });
-            
+            // Fallback: Verwende die vordefinierten Materialien ohne Texturen
             mapObstacles.forEach((obstacle, index) => {
-                console.log(`Erstelle Fallback-Hindernis ${index + 1}:`, obstacle);
+                const material = getMaterialForObstacle(obstacle, index);
                 
                 const box = new THREE.Mesh(
                     new THREE.BoxGeometry(obstacle.width, obstacle.height, obstacle.depth),
-                    boxMaterial
+                    material
                 );
                 
                 box.position.set(obstacle.x, obstacle.y, obstacle.z);
@@ -974,13 +1240,12 @@ function createObstacles() {
                 box.receiveShadow = true;
                 box.userData.isObstacle = true;
                 box.userData.obstacleData = obstacle;
-                box.name = `fallback-obstacle-${index + 1}`;
+                box.name = `fallback-structure-${index + 1}`;
                 
                 scene.add(box);
-                console.log(`✅ Fallback-Hindernis ${index + 1} zur Szene hinzugefügt bei (${obstacle.x}, ${obstacle.y}, ${obstacle.z})`);
-            });
-            
-            console.log(`🎉 ${mapObstacles.length} Fallback-Hindernisse erfolgreich erstellt. Szenen-Kinder:`, scene.children.length);
+    });
+    
+            console.log(`🎉 Low-Poly-Dorf mit ${mapObstacles.length} Fallback-Strukturen erstellt.`);
         }
     );
 }
@@ -1039,10 +1304,28 @@ function addOtherPlayer(playerData) {
     const playerMaterial = new THREE.MeshLambertMaterial({ color: playerColor });
     const playerMesh = new THREE.Mesh(playerGeometry, playerMaterial);
     
-    // Kopf
-    const headGeometry = new THREE.SphereGeometry(0.4, 8, 8);
-    const headMaterial = new THREE.MeshLambertMaterial({ color: 0xffff00 });
-    const headMesh = new THREE.Mesh(headGeometry, headMaterial);
+    // Kopf mit Textur auf der Vorderseite
+    const headGeometry = new THREE.BoxGeometry(0.8, 0.8, 0.8);
+    
+    // Textur für die Vorderseite laden
+    const textureLoader = new THREE.TextureLoader();
+    const texturePath = playerData.headTexture || selectedHeadTexture || 'head1.png';
+    const headTexture = textureLoader.load(`/textures/heads/${texturePath}`);
+    headTexture.magFilter = THREE.NearestFilter; // Pixeliges Aussehen beibehalten
+    headTexture.minFilter = THREE.NearestFilter;
+    
+    // Array von Materialien für jede Seite des Würfels
+    // Reihenfolge: rechts, links, oben, unten, hinten, vorne
+    const headMaterials = [
+        new THREE.MeshLambertMaterial({ color: 0xffff00 }), // rechts
+        new THREE.MeshLambertMaterial({ color: 0xffff00 }), // links
+        new THREE.MeshLambertMaterial({ color: 0xffff00 }), // oben
+        new THREE.MeshLambertMaterial({ color: 0xffff00 }), // unten
+        new THREE.MeshLambertMaterial({ color: 0xffff00 }), // hinten
+        new THREE.MeshLambertMaterial({ map: headTexture })  // vorne (mit Textur)
+    ];
+    
+    const headMesh = new THREE.Mesh(headGeometry, headMaterials);
     headMesh.position.set(0, 1.2, 0);
     
     // NameTag über dem Kopf
@@ -1056,8 +1339,11 @@ function addOtherPlayer(playerData) {
     playerGroup.add(headMesh);
     playerGroup.add(nameTag);
     
-    // NameTag soll immer zur Kamera zeigen
-    playerGroup.userData = { nameTag: nameTag };
+    // NameTag soll immer zur Kamera zeigen und Username für Killfeed speichern
+    playerGroup.userData = { 
+        nameTag: nameTag,
+        username: displayName
+    };
     
     // Position setzen
     playerGroup.position.set(playerData.x, playerData.y - 1, playerData.z); // Y-1 da Player auf Boden steht
@@ -1327,45 +1613,73 @@ function updatePlayer() {
     // Schwerkraft anwenden
     velocityY += GRAVITY * deltaTime;
     
-    // Y-Position aktualisieren
-    const newY = camera.position.y + velocityY * deltaTime;
-    
-    // Erweiterte Boden-Kollision mit Blöcken
-    const groundHeight = getGroundHeightAt(camera.position.x, camera.position.z, newY);
-    
-    // Einfache Boden-Kollision - nur landen wenn unter der Boden-Höhe
-    if (newY <= groundHeight && velocityY <= 0) {
-        // Normal auf Boden oder Block-Oberfläche landen (nur bei Abwärtsbewegung)
-        camera.position.y = groundHeight;
-        velocityY = 0;
-        isGrounded = true;
-    } else {
-        // Frei fallen/springen
-        camera.position.y = newY;
-        isGrounded = false;
-    }
-    
-    // Kollisionserkennung mit Wänden und Hindernissen
+    // Neue Position berechnen
     const newX = camera.position.x + direction.x;
+    const newY = camera.position.y + velocityY * deltaTime;
     const newZ = camera.position.z + direction.z;
     
-    // Versuch beide Achsen gleichzeitig zu bewegen
-    if (Math.abs(newX) < 49 && Math.abs(newZ) < 49 && 
-        !checkHorizontalCollisionWithObstacles(newX, newZ)) {
-        // Beide Richtungen frei - normale Bewegung
-        camera.position.x = newX;
-        camera.position.z = newZ;
-    } else {
-        // Kollision detected - versuche entlang Wänden zu gleiten
+    // Arena-Grenzen prüfen (Begrenzungsmauern bei ±95)
+    const clampedX = Math.max(-94, Math.min(94, newX));
+    const clampedZ = Math.max(-94, Math.min(94, newZ));
+    
+    // 3D-Kollisionsprüfung für die neue Position
+    const collision = checkCollisionWithObstacles(clampedX, newY, clampedZ);
+    
+    if (!collision) {
+        // Keine Kollision - freie Bewegung
+        camera.position.x = clampedX;
+        camera.position.z = clampedZ;
         
-        // Nur X-Achse bewegen (Z bleibt gleich)
-        if (Math.abs(newX) < 49 && !checkHorizontalCollisionWithObstacles(newX, camera.position.z)) {
-            camera.position.x = newX;
+        // Y-Position mit Boden-Kollision
+        const groundHeight = getGroundHeightAt(clampedX, clampedZ, newY);
+        
+        if (newY <= groundHeight && velocityY <= 0) {
+            // Auf Boden oder Objekt landen
+            camera.position.y = groundHeight;
+        velocityY = 0;
+        isGrounded = true;
+        } else {
+            // Freier Fall/Sprung
+            camera.position.y = newY;
+            isGrounded = false;
+        }
+    } else {
+        // Kollision erkannt - Gleiten an Wänden ermöglichen
+        
+        // Versuche nur X-Bewegung (Z bleibt)
+        const collisionX = checkCollisionWithObstacles(clampedX, camera.position.y, camera.position.z);
+        if (!collisionX) {
+            camera.position.x = clampedX;
         }
         
-        // Nur Z-Achse bewegen (X bleibt gleich)
-        if (Math.abs(newZ) < 49 && !checkHorizontalCollisionWithObstacles(camera.position.x, newZ)) {
-            camera.position.z = newZ;
+        // Versuche nur Z-Bewegung (X bleibt)
+        const collisionZ = checkCollisionWithObstacles(camera.position.x, camera.position.y, clampedZ);
+        if (!collisionZ) {
+            camera.position.z = clampedZ;
+        }
+        
+        // Y-Position auch bei Kollision aktualisieren (für Sprung/Fall)
+        const groundHeight = getGroundHeightAt(camera.position.x, camera.position.z, newY);
+        
+        if (newY <= groundHeight && velocityY <= 0) {
+            camera.position.y = groundHeight;
+            velocityY = 0;
+            isGrounded = true;
+        } else {
+            // Prüfe ob Y-Bewegung zu Kollision führt
+            const collisionY = checkCollisionWithObstacles(camera.position.x, newY, camera.position.z);
+            if (!collisionY) {
+                camera.position.y = newY;
+                isGrounded = false;
+            } else {
+                // Y-Kollision - stoppe vertikale Bewegung
+                velocityY = 0;
+                // Prüfe ob wir auf einem Objekt gelandet sind
+                const currentGroundHeight = getGroundHeightAt(camera.position.x, camera.position.z, camera.position.y);
+                if (Math.abs(camera.position.y - currentGroundHeight) < 0.1) {
+                    isGrounded = true;
+                }
+            }
         }
     }
     
@@ -1393,15 +1707,54 @@ function updateBullets() {
         let hitDetected = false;
         Object.keys(players).forEach(playerId => {
             const otherPlayer = players[playerId];
-            if (otherPlayer && bullet.userData.playerId !== playerId && 
-                bullet.position.distanceTo(otherPlayer.position) < 1) {
+            if (otherPlayer && bullet.userData.playerId !== playerId) {
+                
+                // KORREKTE Hitbox-Erkennung basierend auf tatsächlicher Position
+                // playerGroup.position ist bereits bei (playerData.y - 1) wegen Boden-Offset
+                const playerCenter = otherPlayer.position.clone();
+                // Körper-Zentrum ist bei playerGroup.position + 0 (Körper startet bei Group-Position)
+                playerCenter.y += 0; // Körper-Zentrum
+                
+                // Kopf-Position: playerGroup.position + 1.2 (wie in addOtherPlayer definiert)
+                const headCenter = otherPlayer.position.clone();
+                headCenter.y += 1.2; // Kopf ist 1.2 Einheiten über playerGroup
+                
+                const distanceToPlayer = bullet.position.distanceTo(playerCenter);
+                const distanceToHead = bullet.position.distanceTo(headCenter);
+                
+                // Hit-Radien
+                const bodyHit = distanceToPlayer < 1.0;
+                const headHit = distanceToHead < 0.5;
+                
+                // Debug-Logs nur bei Hits
+                if (bodyHit || headHit) {
+                    console.log('🎯 Hit erkannt!');
+                    console.log('Bullet Position:', bullet.position.x.toFixed(2), bullet.position.y.toFixed(2), bullet.position.z.toFixed(2));
+                    console.log('Player Group Pos:', otherPlayer.position.x.toFixed(2), otherPlayer.position.y.toFixed(2), otherPlayer.position.z.toFixed(2));
+                    console.log('Calculated Body Center:', playerCenter.x.toFixed(2), playerCenter.y.toFixed(2), playerCenter.z.toFixed(2));
+                    console.log('Calculated Head Center:', headCenter.x.toFixed(2), headCenter.y.toFixed(2), headCenter.z.toFixed(2));
+                    console.log('Distance to Body:', distanceToPlayer.toFixed(2));
+                    console.log('Distance to Head:', distanceToHead.toFixed(2));
+                    console.log('Body Hit:', bodyHit, '| Head Hit:', headHit);
+                }
+                
+                if (bodyHit || headHit) {
+                    // Headshot hat Priorität vor Body-Hit
+                    const isHeadshot = headHit;
                 
                 // Nur wenn es MEIN Bullet ist, Hit an Server senden
                 if (bullet.userData.playerId === socket.id) {
+                        console.log('📤 Sende Hit an Server:', { isHeadshot, targetId: playerId });
                     socket.emit('playerHit', {
                         targetId: playerId,
-                        damage: bullet.userData.damage,
-                        weaponType: currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper'
+                            damage: bullet.userData.damage,
+                            weaponType: currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper',
+                            isHeadshot: isHeadshot,
+                            hitPosition: {
+                                x: bullet.position.x,
+                                y: bullet.position.y,
+                                z: bullet.position.z
+                            }
                     });
                 }
                 
@@ -1409,33 +1762,39 @@ function updateBullets() {
                 scene.remove(bullet);
                 bullets.splice(i, 1);
                 hitDetected = true;
+                }
             }
         });
         
         if (hitDetected) continue;
         
-        // Client-seitige Kollisionserkennung mit Hindernissen (für sofortiges visuelles Feedback)
-        mapObstacles.forEach(obstacle => {
-            const dx = Math.abs(bullet.position.x - obstacle.x);
-            const dy = Math.abs(bullet.position.y - obstacle.y);
-            const dz = Math.abs(bullet.position.z - obstacle.z);
+        // Präzise Bullet-Kollision mit Hindernissen (exakte Geometrie)
+        for (const obstacle of mapObstacles) {
+            const obstacleLeft = obstacle.x - obstacle.width / 2;
+            const obstacleRight = obstacle.x + obstacle.width / 2;
+            const obstacleBack = obstacle.z - obstacle.depth / 2;
+            const obstacleForward = obstacle.z + obstacle.depth / 2;
+            const obstacleBottom = obstacle.y - obstacle.height / 2;
+            const obstacleTop = obstacle.y + obstacle.height / 2;
             
-            if (dx < obstacle.width / 2 && 
-                dy < obstacle.height / 2 && 
-                dz < obstacle.depth / 2) {
+            // Bullet-Position prüfen
+            if (bullet.position.x >= obstacleLeft && bullet.position.x <= obstacleRight &&
+                bullet.position.y >= obstacleBottom && bullet.position.y <= obstacleTop &&
+                bullet.position.z >= obstacleBack && bullet.position.z <= obstacleForward) {
                 
-                // Bullet trifft Hindernis - visuell entfernen
+                // Exakte Kollision - Bullet entfernen
                 scene.remove(bullet);
                 bullets.splice(i, 1);
                 hitDetected = true;
+                break; // Nur eine Kollision pro Bullet
             }
-        });
+        }
         
         if (hitDetected) continue;
         
-        // Bullet entfernen wenn außerhalb der Arena
-        if (Math.abs(bullet.position.x) > 50 || Math.abs(bullet.position.z) > 50 || 
-            bullet.position.y < 0 || bullet.position.y > 10) {
+        // Bullet entfernen wenn außerhalb der urbanen Arena
+        if (Math.abs(bullet.position.x) > 95 || Math.abs(bullet.position.z) > 95 || 
+            bullet.position.y < 0 || bullet.position.y > 60) {
             scene.remove(bullet);
             bullets.splice(i, 1);
         }
@@ -1452,15 +1811,15 @@ function updateWeaponUI() {
     }
     
     if (weaponIcon) {
-        // Verschiedene Icons für verschiedene Waffen
+        // PNG-Icons für verschiedene Waffen verwenden
         if (currentWeapon === WEAPONS.RIFLE) {
-            weaponIcon.textContent = '🔫'; // Pistole/Gewehr
+            weaponIcon.innerHTML = '<img src="/textures/icons/rifle.png" alt="Rifle">';
         } else if (currentWeapon === WEAPONS.SHOTGUN) {
-            weaponIcon.textContent = '💥'; // Explosion/Shotgun
+            weaponIcon.innerHTML = '<img src="/textures/icons/shotgun.png" alt="Shotgun">';
         } else if (currentWeapon === WEAPONS.SNIPER) {
-            weaponIcon.textContent = '🎯'; // Target/Sniper
+            weaponIcon.innerHTML = '<img src="/textures/icons/sniper.png" alt="Sniper">';
         }
-        weaponIcon.style.color = `#${currentWeapon.color.toString(16).padStart(6, '0')}`;
+        // Farbe wird über CSS-Filter gesteuert (weiß)
     }
     
     // Crosshair für aktuelle Waffe aktualisieren
@@ -1827,8 +2186,193 @@ function playWeaponSound(weaponType) {
             break;
     }
     
-    // Spiele Waffen-Sound ab
+    // Spiele Waffen-Sound ab (eigene Waffe - volle Lautstärke)
     playSound(soundName);
+}
+
+// 3D-Audio für Gegner-Schüsse
+function playEnemyWeaponSound(bulletData) {
+    if (!audioContext || !camera) return;
+    
+    // Bestimme Waffen-Sound basierend auf Waffentyp
+    let soundName = 'rifle'; // Standard
+    
+    switch (bulletData.weaponType) {
+        case 'rifle':
+            soundName = 'rifle';
+            break;
+        case 'shotgun':
+            soundName = 'shotgun';
+            break;
+        case 'sniper':
+            soundName = 'sniper';
+            break;
+    }
+    
+    // Berechne Entfernung zur Schussposition
+    const shooterPosition = new THREE.Vector3(bulletData.x, bulletData.y, bulletData.z);
+    const playerPosition = camera.position;
+    const distance = playerPosition.distanceTo(shooterPosition);
+    
+    // 3D-Audio mit entfernungsbasierter Lautstärke
+    play3DWeaponSound(soundName, shooterPosition, distance);
+}
+
+// 3D-Audio-Engine für entfernungsbasierte Waffen-Sounds
+function play3DWeaponSound(soundName, sourcePosition, distance) {
+    if (!audioContext) return;
+    
+    try {
+        const soundData = audioBuffers[soundName];
+        
+        if (!soundData) {
+            console.log(`❌ Sound nicht verfügbar: ${soundName}`);
+            return;
+        }
+        
+        // Entfernungsbasierte Lautstärke berechnen
+        const maxDistance = 100; // Maximale Hörweite
+        const minDistance = 5;   // Minimale Entfernung für volle Lautstärke
+        
+        let volumeMultiplier = 1.0;
+        if (distance > minDistance) {
+            // Lineare Abnahme der Lautstärke mit Entfernung
+            volumeMultiplier = Math.max(0, 1 - (distance - minDistance) / (maxDistance - minDistance));
+        }
+        
+        // Mindest-Lautstärke für nahegelegene Feinde
+        volumeMultiplier = Math.max(0.1, volumeMultiplier);
+        
+        if (soundData.synthetic) {
+            // Spiele synthetischen 3D-Sound ab
+            play3DSyntheticSound(soundName, sourcePosition, volumeMultiplier);
+        } else {
+            // Spiele echten 3D-Audio-Buffer ab
+            play3DAudioBuffer(soundData.buffer, sourcePosition, volumeMultiplier * soundData.volume);
+        }
+        
+        // Debug-Log nur bei sehr nahen Schüssen
+        if (distance < 20) {
+            console.log(`🔊 3D-Sound: ${soundName} von ${distance.toFixed(1)}m (${(volumeMultiplier * 100).toFixed(0)}%)`);
+        }
+        
+    } catch (error) {
+        console.log('Fehler beim Abspielen des 3D-Sounds:', error);
+    }
+}
+
+// 3D-Audio-Buffer mit räumlicher Positionierung
+function play3DAudioBuffer(audioBuffer, sourcePosition, volume = 1.0) {
+    const source = audioContext.createBufferSource();
+    const gainNode = audioContext.createGain();
+    const pannerNode = audioContext.createPanner();
+    
+    // Audio-Graph: source -> panner -> gain -> destination
+    source.buffer = audioBuffer;
+    source.connect(pannerNode);
+    pannerNode.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // 3D-Positionierung konfigurieren
+    pannerNode.panningModel = 'HRTF';
+    pannerNode.distanceModel = 'linear';
+    pannerNode.refDistance = 1;
+    pannerNode.maxDistance = 100;
+    pannerNode.rolloffFactor = 1;
+    
+    // Position des Schützen setzen
+    pannerNode.positionX.setValueAtTime(sourcePosition.x, audioContext.currentTime);
+    pannerNode.positionY.setValueAtTime(sourcePosition.y, audioContext.currentTime);
+    pannerNode.positionZ.setValueAtTime(sourcePosition.z, audioContext.currentTime);
+    
+    // Spieler-Position als Listener setzen
+    audioContext.listener.positionX.setValueAtTime(camera.position.x, audioContext.currentTime);
+    audioContext.listener.positionY.setValueAtTime(camera.position.y, audioContext.currentTime);
+    audioContext.listener.positionZ.setValueAtTime(camera.position.z, audioContext.currentTime);
+    
+    // Spieler-Orientierung setzen (Blickrichtung)
+    const cameraDirection = new THREE.Vector3(0, 0, -1);
+    cameraDirection.applyQuaternion(camera.quaternion);
+    audioContext.listener.forwardX.setValueAtTime(cameraDirection.x, audioContext.currentTime);
+    audioContext.listener.forwardY.setValueAtTime(cameraDirection.y, audioContext.currentTime);
+    audioContext.listener.forwardZ.setValueAtTime(cameraDirection.z, audioContext.currentTime);
+    
+    // Up-Vector setzen
+    const upVector = new THREE.Vector3(0, 1, 0);
+    upVector.applyQuaternion(camera.quaternion);
+    audioContext.listener.upX.setValueAtTime(upVector.x, audioContext.currentTime);
+    audioContext.listener.upY.setValueAtTime(upVector.y, audioContext.currentTime);
+    audioContext.listener.upZ.setValueAtTime(upVector.z, audioContext.currentTime);
+    
+    // Lautstärke setzen
+    gainNode.gain.setValueAtTime(volume * AUDIO_VOLUME, audioContext.currentTime);
+    
+    source.start(0);
+}
+
+// 3D-Synthetischer Sound für Fallback
+function play3DSyntheticSound(soundName, sourcePosition, volumeMultiplier = 1.0) {
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    const pannerNode = audioContext.createPanner();
+    
+    // Audio-Graph: oscillator -> panner -> gain -> destination
+    oscillator.connect(pannerNode);
+    pannerNode.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // 3D-Positionierung konfigurieren
+    pannerNode.panningModel = 'HRTF';
+    pannerNode.distanceModel = 'linear';
+    pannerNode.refDistance = 1;
+    pannerNode.maxDistance = 100;
+    pannerNode.rolloffFactor = 1;
+    
+    // Position des Schützen setzen
+    pannerNode.positionX.setValueAtTime(sourcePosition.x, audioContext.currentTime);
+    pannerNode.positionY.setValueAtTime(sourcePosition.y, audioContext.currentTime);
+    pannerNode.positionZ.setValueAtTime(sourcePosition.z, audioContext.currentTime);
+    
+    // Spieler-Position als Listener setzen
+    audioContext.listener.positionX.setValueAtTime(camera.position.x, audioContext.currentTime);
+    audioContext.listener.positionY.setValueAtTime(camera.position.y, audioContext.currentTime);
+    audioContext.listener.positionZ.setValueAtTime(camera.position.z, audioContext.currentTime);
+    
+    // Sound-Parameter je nach Waffentyp (wie in playSyntheticSound)
+    switch (soundName) {
+        case 'rifle':
+            // Gewehr: Mittlere Frequenz, schnell
+            oscillator.frequency.setValueAtTime(300, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(150, audioContext.currentTime + 0.2);
+            gainNode.gain.setValueAtTime(0.4 * AUDIO_VOLUME * volumeMultiplier, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.2);
+            oscillator.type = 'sawtooth';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.2);
+            break;
+            
+        case 'shotgun':
+            // Shotgun: Tiefer, länger, rauh
+            oscillator.frequency.setValueAtTime(200, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(80, audioContext.currentTime + 0.4);
+            gainNode.gain.setValueAtTime(0.5 * AUDIO_VOLUME * volumeMultiplier, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.4);
+            oscillator.type = 'sawtooth';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.4);
+            break;
+            
+        case 'sniper':
+            // Sniper: Sehr tief, lang, kraftvoll
+            oscillator.frequency.setValueAtTime(150, audioContext.currentTime);
+            oscillator.frequency.exponentialRampToValueAtTime(50, audioContext.currentTime + 0.6);
+            gainNode.gain.setValueAtTime(0.6 * AUDIO_VOLUME * volumeMultiplier, audioContext.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.6);
+            oscillator.type = 'sawtooth';
+            oscillator.start(audioContext.currentTime);
+            oscillator.stop(audioContext.currentTime + 0.6);
+            break;
+    }
 }
 
 function playSound(soundName) {
@@ -2076,6 +2620,7 @@ function animate() {
     updatePlayer();
     updateBullets();
     updateCooldownUI(); // Cooldown-Balken aktualisieren
+    update3DAudioListener(); // 3D-Audio-Position aktualisieren
     
     // NameTags zur Kamera drehen
     Object.values(players).forEach(playerGroup => {
@@ -2085,6 +2630,34 @@ function animate() {
     });
     
     renderer.render(scene, camera);
+}
+
+// 3D-Audio-Listener kontinuierlich aktualisieren
+function update3DAudioListener() {
+    if (!audioContext || !camera) return;
+    
+    try {
+        // Spieler-Position als Listener setzen
+        audioContext.listener.positionX.setValueAtTime(camera.position.x, audioContext.currentTime);
+        audioContext.listener.positionY.setValueAtTime(camera.position.y, audioContext.currentTime);
+        audioContext.listener.positionZ.setValueAtTime(camera.position.z, audioContext.currentTime);
+        
+        // Spieler-Orientierung setzen (Blickrichtung)
+        const cameraDirection = new THREE.Vector3(0, 0, -1);
+        cameraDirection.applyQuaternion(camera.quaternion);
+        audioContext.listener.forwardX.setValueAtTime(cameraDirection.x, audioContext.currentTime);
+        audioContext.listener.forwardY.setValueAtTime(cameraDirection.y, audioContext.currentTime);
+        audioContext.listener.forwardZ.setValueAtTime(cameraDirection.z, audioContext.currentTime);
+        
+        // Up-Vector setzen
+        const upVector = new THREE.Vector3(0, 1, 0);
+        upVector.applyQuaternion(camera.quaternion);
+        audioContext.listener.upX.setValueAtTime(upVector.x, audioContext.currentTime);
+        audioContext.listener.upY.setValueAtTime(upVector.y, audioContext.currentTime);
+        audioContext.listener.upZ.setValueAtTime(upVector.z, audioContext.currentTime);
+    } catch (error) {
+        // Ignoriere Fehler bei Audio-Listener-Updates
+    }
 }
 
 // Event Handler
@@ -2353,5 +2926,6 @@ setTimeout(createMenuShotgun, 1000);
 
 // Zufällige Spielerdaten beim Laden setzen
 setRandomPlayerData();
+loadAvailableHeadTextures();
 
 console.log('🎯 Hardcoded Shotgun bereit - Menu und Spiel Modelle werden geladen!'); 

@@ -46,6 +46,9 @@
             <div id="zoom-status" style="display: none; color: #0088ff; font-weight: bold; font-size: 16px;">
                 ZOOM AKTIV
             </div>
+            <div id="ground-status" style="position: absolute; top: 120px; left: 20px; color: #ffffff; font-size: 12px; background: rgba(0,0,0,0.5); padding: 5px; border-radius: 3px;">
+                Boden: <span id="ground-type">Normal</span>
+            </div>
             <div id="hitmarker" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); pointer-events: none; z-index: 1001; width: 32px; height: 32px;">
                 <img id="hitmarker-image" src="https://i.imgur.com/ARLyLTl.png" alt="Hitmarker" style="width: 100%; height: 100%; object-fit: contain;">
             </div>
@@ -55,6 +58,10 @@
             </div>
             
             <div id="low-hp-overlay" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 999;"></div>
+            
+            <div id="killfeed">
+                <!-- Kill-Nachrichten werden hier dynamisch hinzugefügt -->
+            </div>
             
             <div id="scoreboard" class="hidden">
                 <div id="scoreboard-header">
@@ -69,31 +76,63 @@
         </div>
         
         <div id="menu" class="hidden">
-            <h1>WebFPS Multiplayer</h1>
-            <div id="player-settings">
-                <div id="username-container">
-                    <label for="usernameInput">Benutzername:</label>
-                    <input type="text" id="usernameInput" placeholder="Dein Name..." maxlength="15" value="">
+            <div class="menu-container">
+                <div class="menu-header">
+                    <h1>WebFPS</h1>
+                    <p class="menu-subtitle">Multiplayer Arena Shooter</p>
                 </div>
-                <div id="color-container">
-                    <label for="colorPicker">Spielerfarbe:</label>
-                    <input type="color" id="colorPicker" value="#ff0000">
+                
+                <div class="menu-content">
+                    <div id="player-settings">
+                        <div class="input-group">
+                            <label for="usernameInput">Spielername</label>
+                            <input type="text" id="usernameInput" placeholder="Dein Name eingeben..." maxlength="15" value="">
+                        </div>
+                        
+                        <div class="input-row">
+                            <div class="input-group">
+                                <label for="colorPicker">Farbe</label>
+                                <input type="color" id="colorPicker" value="#ff0000">
+                            </div>
+                            <div class="input-group">
+                                <label for="headTexturePicker">Kopf</label>
+                                <select id="headTexturePicker">
+                                    <option value="">Lädt...</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button id="startBtn" class="start-button">
+                        <span class="button-text">Spiel starten</span>
+                        <div class="button-glow"></div>
+                    </button>
                 </div>
-            </div>
-            <button id="startBtn">Spiel starten</button>
-            <div id="instructions">
-                <h3>Steuerung:</h3>
-                <p>WASD - Bewegung</p>
-                <p>Shift - Sprinten</p>
-                <p>Leertaste - Springen</p>
-                <p>Maus - Umschauen</p>
-                <p>Linke Maustaste - Schießen</p>
-                <p>Rechte Maustaste (halten) - Zoom (Sniper)</p>
-                <p>1 - Gewehr</p>
-                <p>2 - Shotgun</p>
-                <p>3 - Sniper</p>
-                <p>Tab (halten) - Scoreboard</p>
-                <p>ESC - Menü</p>
+                
+                <div class="menu-footer">
+                    <div class="controls-grid">
+                        <div class="control-section">
+                            <h4>Bewegung</h4>
+                            <div class="control-item"><span class="key">WASD</span> Laufen</div>
+                            <div class="control-item"><span class="key">Shift</span> Sprinten</div>
+                            <div class="control-item"><span class="key">Space</span> Springen</div>
+                        </div>
+                        
+                        <div class="control-section">
+                            <h4>Kampf</h4>
+                            <div class="control-item"><span class="key">LMB</span> Schießen</div>
+                            <div class="control-item"><span class="key">RMB</span> Zielen</div>
+                            <div class="control-item"><span class="key">1-3</span> Waffen</div>
+                        </div>
+                        
+                        <div class="control-section">
+                            <h4>Interface</h4>
+                            <div class="control-item"><span class="key">Tab</span> Scoreboard</div>
+                            <div class="control-item"><span class="key">ESC</span> Menü</div>
+                            <div class="control-item"><span class="key">Maus</span> Umschauen</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
         
