@@ -140,6 +140,58 @@
             <h2>Du wurdest eliminiert!</h2>
             <p>Respawn in <span id="respawn-timer">5</span> Sekunden...</p>
         </div>
+        
+        <!-- Admin Cheat Menu - nur für Ares sichtbar -->
+        <div id="admin-menu" class="hidden">
+            <div class="admin-container">
+                <div class="admin-header">
+                    <h3>🔒 Admin Cheat Menu</h3>
+                    <span class="admin-subtitle">Nur für Ares verfügbar</span>
+                </div>
+                
+                <div class="admin-content">
+                    <div class="cheat-option">
+                        <label class="cheat-checkbox">
+                            <input type="checkbox" id="esp-toggle">
+                            <span class="checkmark"></span>
+                            ESP (Extra Sensory Perception)
+                        </label>
+                        <p class="cheat-description">Zeigt alle Spieler durch Wände hindurch</p>
+                    </div>
+                    
+                    <div class="cheat-option">
+                        <label class="cheat-checkbox">
+                            <input type="checkbox" id="fly-toggle">
+                            <span class="checkmark"></span>
+                            Fly Mode
+                        </label>
+                        <p class="cheat-description">Leertaste = hoch, Shift = runter fliegen</p>
+                    </div>
+                    
+                    <div class="cheat-option">
+                        <label class="cheat-checkbox">
+                            <input type="checkbox" id="rapidfire-toggle">
+                            <span class="checkmark"></span>
+                            Rapid Fire
+                        </label>
+                        <p class="cheat-description">Maustaste gedrückt halten für automatisches Schießen</p>
+                    </div>
+                    
+                    <div class="cheat-option">
+                        <label class="cheat-checkbox">
+                            <input type="checkbox" id="noshotdelay-toggle">
+                            <span class="checkmark"></span>
+                            Remove Shot Delay
+                        </label>
+                        <p class="cheat-description">Entfernt Waffen-Cooldowns für sofortiges Schießen</p>
+                    </div>
+                </div>
+                
+                <div class="admin-footer">
+                    <span class="admin-hint">Drücke 'i' zum Schließen</span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <div id="game-container">

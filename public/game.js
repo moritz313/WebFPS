@@ -13,7 +13,8 @@ const keys = {
     s: false,
     d: false,
     space: false,
-    shift: false
+    shift: false,
+    ctrl: false
 };
 
 // Player Eigenschaften
@@ -178,6 +179,25 @@ const killIconImage = document.getElementById('kill-icon-image');
 const lowHpOverlay = document.getElementById('low-hp-overlay');
 const scoreboard = document.getElementById('scoreboard');
 const killfeed = document.getElementById('killfeed');
+
+// Admin Cheat Menu Elemente
+const adminMenu = document.getElementById('admin-menu');
+const espToggle = document.getElementById('esp-toggle');
+const flyToggle = document.getElementById('fly-toggle');
+const rapidfireToggle = document.getElementById('rapidfire-toggle');
+const noShotDelayToggle = document.getElementById('noshotdelay-toggle');
+
+// Admin Cheat Variablen
+let isAdminMenuVisible = false;
+let espEnabled = false;
+let flyEnabled = false;
+let rapidfireEnabled = false;
+let noShotDelayEnabled = false;
+let currentPlayerUsername = null;
+
+// Rapid Fire Variablen
+let isMousePressed = false;
+let rapidfireInterval = null;
 
 // Scoreboard-Daten
 let playerStats = {}; // { playerId: { kills: 0, deaths: 0, username: '', color: '' } }
@@ -737,6 +757,9 @@ function startGame() {
     }).catch(error => {
         console.log('⚠️ Audio-System Fallback aktiv');
     });
+    
+    // Admin Menu initialisieren
+    initAdminMenu();
 }
 
 function initThreeJS() {
@@ -1355,7 +1378,14 @@ function addOtherPlayer(playerData) {
     playerMesh.receiveShadow = true;
     
     players[playerData.id] = playerGroup;
+    playerGroup.mesh = playerGroup; // Referenz für ESP
+    playerGroup.nameTag = nameTag; // Referenz für ESP Name Tags
     scene.add(playerGroup);
+    
+    // ESP anwenden falls aktiv
+    if (espEnabled) {
+        applyESP();
+    }
     
     console.log('Spieler erfolgreich zur Szene hinzugefügt. Anzahl Spieler in Szene:', Object.keys(players).length);
     console.log('Szenen-Kinder:', scene.children.length);
@@ -1391,9 +1421,9 @@ function createBulletVisual(bulletData) {
 }
 
 function shootInstant() {
-    // Cooldown für alle Waffen überprüfen
+    // Cooldown für alle Waffen überprüfen (außer wenn No Shot Delay aktiv ist)
     const currentTime = Date.now();
-    if (currentTime - lastShotTime < currentWeapon.cooldown) {
+    if (!(noShotDelayEnabled && isAdminUser()) && currentTime - lastShotTime < currentWeapon.cooldown) {
         return; // Cooldown noch aktiv
     }
     lastShotTime = currentTime;
@@ -1453,11 +1483,6 @@ function shootInstant() {
     // Waffenschuss-Sound abspielen
     const weaponType = currentWeapon === WEAPONS.RIFLE ? 'rifle' : currentWeapon === WEAPONS.SHOTGUN ? 'shotgun' : 'sniper';
     playWeaponSound(weaponType);
-    
-    // Rückstoß-Effekt - stärker bei Shotgun
-    const recoilMultiplier = currentWeapon === WEAPONS.SHOTGUN ? 2 : currentWeapon === WEAPONS.SNIPER ? 1.5 : 1;
-    camera.rotation.x += (Math.random() - 0.5) * 0.02 * recoilMultiplier;
-    camera.rotation.y += (Math.random() - 0.5) * 0.02 * recoilMultiplier;
 }
 
 // Alte shoot-Funktion für Backward-Compatibility falls irgendwo noch verwendet
@@ -1579,6 +1604,154 @@ function removePlayerFromStats(playerId) {
     }
 }
 
+// ===== ADMIN CHEAT MENU FUNKTIONEN =====
+
+function showAdminMenu() {
+    if (!isAdminUser()) return;
+    
+    adminMenu.classList.remove('hidden');
+    isAdminMenuVisible = true;
+    
+    // Pointer Lock temporär deaktivieren
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+    
+    console.log('🔒 Admin Cheat Menu geöffnet');
+}
+
+function hideAdminMenu() {
+    adminMenu.classList.add('hidden');
+    isAdminMenuVisible = false;
+    
+    // Pointer Lock wieder aktivieren wenn im Spiel
+    if (gameStarted) {
+        document.body.requestPointerLock();
+    }
+    
+    console.log('🔒 Admin Cheat Menu geschlossen');
+}
+
+function toggleAdminMenu() {
+    if (!isAdminUser()) {
+        console.log('❌ Admin-Funktionen nur für Ares verfügbar');
+        return;
+    }
+    
+    if (isAdminMenuVisible) {
+        hideAdminMenu();
+    } else {
+        showAdminMenu();
+    }
+}
+
+function isAdminUser() {
+    // Nur wenn der Username "Ares" ist
+    const username = usernameInput.value.trim();
+    return username === 'Ares';
+}
+
+function initAdminMenu() {
+    if (!adminMenu || !espToggle || !flyToggle || !rapidfireToggle || !noShotDelayToggle) return;
+    
+    // ESP Toggle Event Listener
+    espToggle.addEventListener('change', function() {
+        espEnabled = this.checked;
+        applyESP();
+        console.log('👁️ ESP', espEnabled ? 'aktiviert' : 'deaktiviert');
+    });
+    
+    // Fly Toggle Event Listener
+    flyToggle.addEventListener('change', function() {
+        flyEnabled = this.checked;
+        console.log('✈️ Fly Mode', flyEnabled ? 'aktiviert' : 'deaktiviert');
+    });
+    
+    // Rapid Fire Toggle Event Listener
+    rapidfireToggle.addEventListener('change', function() {
+        rapidfireEnabled = this.checked;
+        if (!rapidfireEnabled && rapidfireInterval) {
+            clearInterval(rapidfireInterval);
+            rapidfireInterval = null;
+        }
+        console.log('🔥 Rapid Fire', rapidfireEnabled ? 'aktiviert' : 'deaktiviert');
+    });
+    
+    // No Shot Delay Toggle Event Listener
+    noShotDelayToggle.addEventListener('change', function() {
+        noShotDelayEnabled = this.checked;
+        console.log('⚡ Remove Shot Delay', noShotDelayEnabled ? 'aktiviert' : 'deaktiviert');
+    });
+    
+    console.log('🔒 Admin Cheat Menu initialisiert');
+}
+
+function applyESP() {
+    if (!gameStarted || !scene) return;
+    
+    // Alle anderen Spieler durchgehen
+    Object.values(players).forEach(playerObj => {
+        if (playerObj) {
+            if (espEnabled) {
+                // ESP-Box erstellen falls noch nicht vorhanden
+                if (!playerObj.espBox) {
+                    // Wireframe-Box erstellen die um den Spieler geht
+                    const boxGeometry = new THREE.BoxGeometry(1.2, 2.5, 1.2);
+                    const boxMaterial = new THREE.MeshBasicMaterial({
+                        color: 0xff0000,
+                        wireframe: true,
+                        transparent: true,
+                        opacity: 0.8,
+                        depthTest: false, // Durch Wände sichtbar
+                        depthWrite: false
+                    });
+                    
+                    const espBox = new THREE.Mesh(boxGeometry, boxMaterial);
+                    espBox.position.set(0, 0.75, 0); // Zentriert um den Spieler
+                    espBox.renderOrder = 1000; // Immer im Vordergrund rendern
+                    
+                    playerObj.espBox = espBox;
+                    playerObj.add(espBox);
+                    
+                    console.log('👁️ ESP-Box für Spieler erstellt');
+                }
+            } else {
+                // ESP-Box entfernen
+                if (playerObj.espBox) {
+                    playerObj.remove(playerObj.espBox);
+                    playerObj.espBox = null;
+                    console.log('👁️ ESP-Box entfernt');
+                }
+            }
+        }
+    });
+}
+
+// ===== RAPID FIRE FUNKTIONEN =====
+
+function startRapidFire() {
+    if (rapidfireInterval) return; // Bereits aktiv
+    
+    // Rapid Fire alle 50ms (20 Schüsse pro Sekunde)
+    rapidfireInterval = setInterval(() => {
+        if (isMousePressed && rapidfireEnabled && isAdminUser() && gameStarted && isPointerLocked) {
+            shootInstant();
+        } else {
+            stopRapidFire();
+        }
+    }, 50);
+    
+    console.log('🔥 Rapid Fire gestartet');
+}
+
+function stopRapidFire() {
+    if (rapidfireInterval) {
+        clearInterval(rapidfireInterval);
+        rapidfireInterval = null;
+        console.log('🔥 Rapid Fire gestoppt');
+    }
+}
+
 function updatePlayer() {
     if (!gameStarted) return;
     
@@ -1596,22 +1769,34 @@ function updatePlayer() {
     
     direction.normalize();
     
-    // Geschwindigkeit bestimmen (Sprint oder normal)
+    // Geschwindigkeit bestimmen (Sprint oder normal, aber nicht im Fly Mode)
     let currentSpeed = PLAYER_SPEED;
-    if (keys.shift) {
+    if (keys.shift && !(flyEnabled && isAdminUser())) {
         currentSpeed *= SPRINT_MULTIPLIER;
     }
     
     direction.multiplyScalar(currentSpeed * deltaTime);
     
-    // Springen
-    if (keys.space && isGrounded) {
-        velocityY = JUMP_FORCE;
-        isGrounded = false;
+    // Fly Mode oder normaler Sprung
+    if (flyEnabled && isAdminUser()) {
+        // Fly Mode aktiv - kontinuierliches Fliegen
+        if (keys.space) {
+            velocityY = PLAYER_SPEED * 1.5; // Fly-Geschwindigkeit nach oben
+        } else if (keys.shift) {
+            velocityY = -PLAYER_SPEED * 1.5; // Fly-Geschwindigkeit nach unten
+        } else {
+            velocityY = 0; // Keine vertikale Bewegung wenn keine Taste gedrückt
+        }
+    } else {
+        // Normaler Sprung-Modus
+        if (keys.space && isGrounded) {
+            velocityY = JUMP_FORCE;
+            isGrounded = false;
+        }
+        
+        // Schwerkraft anwenden (nur wenn nicht im Fly Mode)
+        velocityY += GRAVITY * deltaTime;
     }
-    
-    // Schwerkraft anwenden
-    velocityY += GRAVITY * deltaTime;
     
     // Neue Position berechnen
     const newX = camera.position.x + direction.x;
@@ -1630,18 +1815,24 @@ function updatePlayer() {
         camera.position.x = clampedX;
         camera.position.z = clampedZ;
         
-        // Y-Position mit Boden-Kollision
-        const groundHeight = getGroundHeightAt(clampedX, clampedZ, newY);
-        
-        if (newY <= groundHeight && velocityY <= 0) {
-            // Auf Boden oder Objekt landen
-            camera.position.y = groundHeight;
-        velocityY = 0;
-        isGrounded = true;
-        } else {
-            // Freier Fall/Sprung
+        if (flyEnabled && isAdminUser()) {
+            // Fly Mode - keine Boden-Kollision, freie Y-Bewegung
             camera.position.y = newY;
-            isGrounded = false;
+            isGrounded = false; // Im Fly Mode nie grounded
+        } else {
+            // Normale Y-Position mit Boden-Kollision
+            const groundHeight = getGroundHeightAt(clampedX, clampedZ, newY);
+            
+            if (newY <= groundHeight && velocityY <= 0) {
+                // Auf Boden oder Objekt landen
+                camera.position.y = groundHeight;
+                velocityY = 0;
+                isGrounded = true;
+            } else {
+                // Freier Fall/Sprung
+                camera.position.y = newY;
+                isGrounded = false;
+            }
         }
     } else {
         // Kollision erkannt - Gleiten an Wänden ermöglichen
@@ -1658,26 +1849,32 @@ function updatePlayer() {
             camera.position.z = clampedZ;
         }
         
-        // Y-Position auch bei Kollision aktualisieren (für Sprung/Fall)
-        const groundHeight = getGroundHeightAt(camera.position.x, camera.position.z, newY);
-        
-        if (newY <= groundHeight && velocityY <= 0) {
-            camera.position.y = groundHeight;
-            velocityY = 0;
-            isGrounded = true;
+        if (flyEnabled && isAdminUser()) {
+            // Fly Mode - freie Y-Bewegung auch bei horizontalen Kollisionen
+            camera.position.y = newY;
+            isGrounded = false;
         } else {
-            // Prüfe ob Y-Bewegung zu Kollision führt
-            const collisionY = checkCollisionWithObstacles(camera.position.x, newY, camera.position.z);
-            if (!collisionY) {
-                camera.position.y = newY;
-                isGrounded = false;
-            } else {
-                // Y-Kollision - stoppe vertikale Bewegung
+            // Y-Position auch bei Kollision aktualisieren (für Sprung/Fall)
+            const groundHeight = getGroundHeightAt(camera.position.x, camera.position.z, newY);
+            
+            if (newY <= groundHeight && velocityY <= 0) {
+                camera.position.y = groundHeight;
                 velocityY = 0;
-                // Prüfe ob wir auf einem Objekt gelandet sind
-                const currentGroundHeight = getGroundHeightAt(camera.position.x, camera.position.z, camera.position.y);
-                if (Math.abs(camera.position.y - currentGroundHeight) < 0.1) {
-                    isGrounded = true;
+                isGrounded = true;
+            } else {
+                // Prüfe ob Y-Bewegung zu Kollision führt
+                const collisionY = checkCollisionWithObstacles(camera.position.x, newY, camera.position.z);
+                if (!collisionY) {
+                    camera.position.y = newY;
+                    isGrounded = false;
+                } else {
+                    // Y-Kollision - stoppe vertikale Bewegung
+                    velocityY = 0;
+                    // Prüfe ob wir auf einem Objekt gelandet sind
+                    const currentGroundHeight = getGroundHeightAt(camera.position.x, camera.position.z, camera.position.y);
+                    if (Math.abs(camera.position.y - currentGroundHeight) < 0.1) {
+                        isGrounded = true;
+                    }
                 }
             }
         }
@@ -2683,6 +2880,10 @@ function onKeyDown(event) {
         case 'ShiftRight':
             keys.shift = true;
             break;
+        case 'ControlLeft':
+        case 'ControlRight':
+            keys.ctrl = true;
+            break;
         case 'Digit1':
             currentWeapon = WEAPONS.RIFLE;
             resetZoom(); // Zoom zurücksetzen wenn andere Waffe gewählt
@@ -2709,6 +2910,11 @@ function onKeyDown(event) {
                 document.exitPointerLock();
             }
             break;
+        case 'KeyI':
+            if (gameStarted) {
+                toggleAdminMenu();
+            }
+            break;
     }
 }
 
@@ -2733,6 +2939,10 @@ function onKeyUp(event) {
         case 'ShiftRight':
             keys.shift = false;
             break;
+        case 'ControlLeft':
+        case 'ControlRight':
+            keys.ctrl = false;
+            break;
         case 'Tab':
             hideScoreboard();
             break;
@@ -2752,9 +2962,17 @@ function onMouseClick(event) {
 
 function onMouseDown(event) {
     if (gameStarted && isPointerLocked) {
-        if (event.button === 0) { // Linke Maustaste - SOFORTIGES Schießen
+        if (event.button === 0) { // Linke Maustaste - Schießen
             event.preventDefault();
+            isMousePressed = true;
+            
+            // Sofortiger erster Schuss
             shootInstant();
+            
+            // Rapid Fire starten falls aktiviert
+            if (rapidfireEnabled && isAdminUser()) {
+                startRapidFire();
+            }
         } else if (event.button === 2) { // Rechte Maustaste - Zoom start
             event.preventDefault();
             startZoom();
@@ -2764,7 +2982,11 @@ function onMouseDown(event) {
 
 function onMouseUp(event) {
     if (gameStarted && isPointerLocked) {
-        if (event.button === 2) { // Rechte Maustaste - Zoom stop
+        if (event.button === 0) { // Linke Maustaste - Schießen stop
+            event.preventDefault();
+            isMousePressed = false;
+            stopRapidFire();
+        } else if (event.button === 2) { // Rechte Maustaste - Zoom stop
             event.preventDefault();
             stopZoom();
         }
